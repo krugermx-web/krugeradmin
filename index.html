@@ -73,10 +73,7 @@
                         <tr class="hover:bg-gray-50 border-b border-gray-100">
                             <td class="px-6 py-4 whitespace-nowrap"><img src="${data.image}" class="h-16 w-16 rounded-lg object-contain bg-white border p-1"></td>
                             <td class="px-6 py-4 font-bold text-gray-900">${data.name}</td>
-                            <td class="px-6 py-4 text-gray-600 text-sm">${data.type}</td>
-                            <td class="px-6 py-4">
-                                <span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>
-                                ${installText}
+                            <td class="px-6 py-4 text-gray-600 text-sm">${data.type}</td>                             <td class="px-6 py-4">                                 <span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>${installText}
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <button onclick="deleteProduct('${doc.id}')" class="text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors"><i class="fas fa-trash-alt"></i></button>
@@ -123,6 +120,12 @@
         function loadOrders() {
             onSnapshot(collection(db, "orders"), (snapshot) => {
                 let orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // === NUEVO FILTRO DE LIMPIEZA ===
+                // Ocultar todas las órdenes basura de ayer que no tengan un ID de pago real
+                orders = orders.filter(o => o.mp_payment_id || o.status === "Realizado" || o.status === "Pagado");
+                // =================================
+
                 orders.sort((a,b) => b.createdAt.seconds - a.createdAt.seconds);
                 
                 const now = new Date();
@@ -133,7 +136,7 @@
                 const tbody = document.getElementById('orders-table-body');
                 
                 if(orders.length === 0){
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500">No hay pedidos registrados aún.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500 font-bold text-lg"><i class="fas fa-box-open mb-3 text-3xl block"></i>No hay pedidos pagados aún.</td></tr>`;
                     updateStatsUI(0, 0, 0); return;
                 }
 
@@ -142,42 +145,40 @@
                     const dateObj = new Date(order.createdAt.seconds * 1000);
                     const isCurrentMonth = (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear);
 
-                    if(order.status === "Pendiente" || !order.status) pendientesCount++;
+                    if(order.status === "Pagado") pendientesCount++;
                     else if (order.status === "Realizado" && isCurrentMonth) { completadosMesCount++; totalVentasMes += order.total; }
 
                     const formattedDate = dateObj.toLocaleDateString('es-MX') + ' ' + dateObj.toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'});
                     
-                    const itemsHtml = order.items.map(i => `
-                        <div class="text-sm mb-1 text-gray-800">
-                            <strong>${i.quantity}x</strong> ${i.name} 
-                            ${i.wantsInstall ? '<span class="text-metallic-red font-bold text-xs ml-1">(+Inst.)</span>' : ''}
+                    // ESCUDO PROTECTOR PARA PRODUCTOS VIEJOS
+                    const listaItems = order.items || [];
+                    const itemsHtml = listaItems.length > 0 ? listaItems.map(i => `
+                        <div class="text-sm mb-1 text-gray-800 bg-white p-2 rounded border border-gray-100 shadow-sm">
+                            <strong class="text-metallic-blue">${i.quantity}x</strong> ${i.name}${i.wantsInstall ? '<span class="text-metallic-red font-bold text-xs ml-1 block mt-1"><i class="fas fa-plus"></i> Instalación Incluida</span>' : ''}
                         </div>
-                    `).join('');
+                    `).join('') : '<span class="text-gray-400 italic">Productos no registrados</span>';
                     
                     const installInfo = order.needsInstall ? `
-                        <div class="mt-3 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
+                        <div class="mt-3 bg-blue-50 p-3 rounded-lg border border-blue-100">
                             <p class="text-xs font-bold text-metallic-blue uppercase tracking-wider mb-2"><i class="fas fa-tools mr-1"></i> Detalles Instalación</p>
                             <div class="text-sm text-gray-700 mb-3"><strong class="block mb-1">Lugar:</strong>
                                 <div class="flex items-center gap-2"><span class="bg-white px-2 py-1 rounded border border-blue-200 flex-1 min-h-[28px] flex items-center shadow-sm">${order.installAddress || '<span class="text-gray-400 italic">N/A</span>'}</span>
-                                <button onclick="editInstallAddress('${order.id}', '${order.installAddress || ''}')" title="Modificar dirección" class="text-gray-400 hover:text-metallic-blue transition-colors p-1.5 bg-white rounded border shadow-sm"><i class="fas fa-edit"></i></button></div>
+                                <button onclick="editInstallAddress('${order.id}', '${order.installAddress || ''}')" title="Modificar dirección" class="text-gray-400 hover:text-metallic-blue transition-colors p-1 bg-white rounded border shadow-sm"><i class="fas fa-edit"></i></button></div>
                             </div>
                             <div class="text-sm text-gray-700"><strong class="block mb-1">Horario acordado:</strong>
                                 <div class="flex items-center gap-2"><span class="bg-white px-2 py-1 rounded border border-blue-200 flex-1 min-h-[28px] flex items-center shadow-sm">${order.installSchedule || '<span class="text-gray-400 italic">N/A</span>'}</span>
-                                <button onclick="editInstallSchedule('${order.id}', '${order.installSchedule || ''}')" title="Modificar horario" class="text-gray-400 hover:text-metallic-blue transition-colors p-1.5 bg-white rounded border shadow-sm"><i class="fas fa-edit"></i></button></div>
+                                <button onclick="editInstallSchedule('${order.id}', '${order.installSchedule || ''}')" title="Modificar horario" class="text-gray-400 hover:text-metallic-blue transition-colors p-1 bg-white rounded border shadow-sm"><i class="fas fa-edit"></i></button></div>
                             </div>
                         </div>
                     ` : '';
 
                     const isDone = order.status === "Realizado";
-                    const statusBadge = isDone ? `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-circle mr-1"></i> Realizado</span>` : `<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-clock mr-1"></i> Pendiente</span>`;
-                    const actionBtn = isDone ? `<button onclick="updateOrderStatus('${order.id}', 'Pendiente')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>` : `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full"><i class="fas fa-check mr-1"></i> Completar</button>`;
+                    const statusBadge = isDone ? `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-double mr-1"></i> Entregado</span>` : `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-money-bill-wave mr-1"></i> Pagado - Por Enviar</span>`;
+                    const actionBtn = isDone ? `<button onclick="updateOrderStatus('${order.id}', 'Pagado')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>` : `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full"><i class="fas fa-check mr-1"></i> Marcar Entregado</button>`;
 
                     const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
-                    const waLink = `https://wa.me/52${cleanPhone}?text=Hola%20${encodeURIComponent(order.customerName)},%20te%20escribimos%20de%20Krüger%20sobre%20tu%20reciente%20pedido.`;
+                    const waLink = `https://wa.me/52${cleanPhone}?text=Hola\%20${encodeURIComponent(order.customerName)},%20te%20escribimos%20de%20Krüger%20sobre%20tu%20reciente%20pedido.`;
 
-                    // =========================================================================================
-                    // NUEVO: IDENTIFICADOR DE MERCADO PAGO 
-                    // =========================================================================================
                     const mpBadge = order.mp_payment_id 
                         ? `<div class="mt-4 flex items-center justify-between bg-[#009EE3]/10 border border-[#009EE3]/20 px-2 py-1.5 rounded-lg">
                             <div>
@@ -186,8 +187,7 @@
                             </div>
                             <button onclick="navigator.clipboard.writeText('${order.mp_payment_id}'); alert('ID de pago copiado');" class="text-[#009EE3] hover:text-blue-800 transition-colors bg-white px-2 py-0.5 rounded shadow-sm text-xs font-bold" title="Copiar ID"><i class="fas fa-copy"></i></button>
                            </div>`
-                        : `<div class="mt-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest"><i class="fas fa-exclamation-circle"></i> ID de Pago Pendiente</div>`;
-                    // =========================================================================================
+                        : ``;
 
                     html += `
                         <tr class="hover:bg-gray-50 border-b border-gray-100 ${isDone ? 'bg-gray-50/50 opacity-80' : ''}">
@@ -199,15 +199,18 @@
                             </td>
                             <td class="px-6 py-5 align-top max-w-xs">
                                 <div class="text-sm font-bold text-metallic-blue mb-1"><a href="${waLink}" target="_blank" title="Abrir WhatsApp" class="hover:text-green-500 transition-colors"><i class="fab fa-whatsapp text-green-500 w-5"></i> ${order.customerPhone}</a></div>
-                                <div class="text-sm text-gray-600 leading-tight"><i class="fas fa-truck text-gray-400 w-5"></i> ${order.shippingAddress}</div>
+                                <div class="text-sm text-gray-600 leading-tight bg-gray-50 p-2 rounded border border-gray-100"><i class="fas fa-map-marker-alt text-metallic-red mr-1"></i> ${order.shippingAddress}</div>
                             </td>
                             <td class="px-6 py-5 align-top">
-                                ${itemsHtml}
+                                <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                    <h4 class="text-xs font-bold text-gray-500 uppercase mb-2 border-b pb-1">Productos Comprados</h4>
+                                    ${itemsHtml}
+                                </div>
                                 ${installInfo}
                             </td>
                             <td class="px-6 py-5 align-top">
-                                <span class="font-black text-green-600 text-xl">$${order.total.toLocaleString('es-MX')}</span>
-                                <div class="text-xs text-gray-500 mt-1 uppercase">MXN</div>
+                                <span class="font-black text-green-600 text-xl">$${(order.total || 0).toLocaleString('es-MX')}</span>
+                                <div class="text-xs text-gray-500 mt-1 uppercase font-bold">MXN</div>
                             </td>
                             <td class="px-6 py-5 align-top">
                                 ${actionBtn}
@@ -222,7 +225,7 @@
         }
 
         window.updateOrderStatus = async (id, status) => {
-            const msj = status === 'Realizado' ? '¿Estás seguro de que deseas marcar este pedido como COMPLETADO?' : '¿Estás seguro de que deseas DESHACER este pedido y regresarlo a Pendiente?';
+            const msj = status === 'Realizado' ? '¿Estás seguro de que deseas marcar este pedido como ENTREGADO?' : '¿Estás seguro de que deseas DESHACER este pedido y regresarlo a Pendiente por Enviar?';
             if (confirm(msj)) {
                 try { await updateDoc(doc(db, "orders", id), { status: status }); } 
                 catch(e) { alert("Hubo un error al actualizar el estado: " + e.message); }
@@ -302,8 +305,8 @@
                 <div id="tab-pedidos" class="hidden">
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                         <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-chart-line mr-1"></i> Ingresos del Mes</p><h3 class="text-4xl font-black text-green-600" id="stat-ventas">$0</h3></div>
-                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-clock mr-1"></i> Pendientes</p><h3 class="text-4xl font-black text-yellow-500" id="stat-pendientes">0</h3></div>
-                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-check-circle mr-1"></i> Completados (Mes)</p><h3 class="text-4xl font-black text-metallic-blue" id="stat-completados">0</h3></div>
+                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-clock mr-1"></i> Pagados - Por enviar</p><h3 class="text-4xl font-black text-blue-600" id="stat-pendientes">0</h3></div>
+                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-check-double mr-1"></i> Entregados (Mes)</p><h3 class="text-4xl font-black text-metallic-blue" id="stat-completados">0</h3></div>
                     </div>
                     <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden">
                         <table class="min-w-full divide-y divide-gray-200">
