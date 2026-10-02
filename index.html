@@ -172,8 +172,22 @@
                     const statusBadge = isDone ? `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-circle mr-1"></i> Realizado</span>` : `<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-clock mr-1"></i> Pendiente</span>`;
                     const actionBtn = isDone ? `<button onclick="updateOrderStatus('${order.id}', 'Pendiente')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>` : `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full"><i class="fas fa-check mr-1"></i> Completar</button>`;
 
-                    const cleanPhone = order.customerPhone.replace(/\D/g, '');
+                    const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
                     const waLink = `https://wa.me/52${cleanPhone}?text=Hola%20${encodeURIComponent(order.customerName)},%20te%20escribimos%20de%20Krüger%20sobre%20tu%20reciente%20pedido.`;
+
+                    // =========================================================================================
+                    // NUEVO: IDENTIFICADOR DE MERCADO PAGO 
+                    // =========================================================================================
+                    const mpBadge = order.mp_payment_id 
+                        ? `<div class="mt-4 flex items-center justify-between bg-[#009EE3]/10 border border-[#009EE3]/20 px-2 py-1.5 rounded-lg">
+                            <div>
+                                <i class="fas fa-handshake text-[#009EE3] text-[10px] mr-1"></i>
+                                <span class="font-mono text-xs font-black text-[#009EE3] tracking-wider">#${order.mp_payment_id}</span>
+                            </div>
+                            <button onclick="navigator.clipboard.writeText('${order.mp_payment_id}'); alert('ID de pago copiado');" class="text-[#009EE3] hover:text-blue-800 transition-colors bg-white px-2 py-0.5 rounded shadow-sm text-xs font-bold" title="Copiar ID"><i class="fas fa-copy"></i></button>
+                           </div>`
+                        : `<div class="mt-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest"><i class="fas fa-exclamation-circle"></i> ID de Pago Pendiente</div>`;
+                    // =========================================================================================
 
                     html += `
                         <tr class="hover:bg-gray-50 border-b border-gray-100 ${isDone ? 'bg-gray-50/50 opacity-80' : ''}">
@@ -181,6 +195,7 @@
                                 <div class="font-black text-gray-900 text-lg">${order.customerName}</div>
                                 <div class="text-xs font-bold text-gray-500 mt-1 mb-2 uppercase"><i class="far fa-calendar-alt mr-1"></i> ${formattedDate}</div>
                                 ${statusBadge}
+                                ${mpBadge}
                             </td>
                             <td class="px-6 py-5 align-top max-w-xs">
                                 <div class="text-sm font-bold text-metallic-blue mb-1"><a href="${waLink}" target="_blank" title="Abrir WhatsApp" class="hover:text-green-500 transition-colors"><i class="fab fa-whatsapp text-green-500 w-5"></i> ${order.customerPhone}</a></div>
