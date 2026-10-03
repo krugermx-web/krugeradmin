@@ -120,11 +120,6 @@
         function loadOrders() {
             onSnapshot(collection(db, "orders"), (snapshot) => {
                 let orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                
-                // === NUEVO FILTRO DE LIMPIEZA ===
-                orders = orders.filter(o => o.mp_payment_id || o.status === "Realizado" || o.status === "Pagado");
-                // =================================
-
                 orders.sort((a,b) => b.createdAt.seconds - a.createdAt.seconds);
                 
                 const now = new Date();
@@ -135,7 +130,7 @@
                 const tbody = document.getElementById('orders-table-body');
                 
                 if(orders.length === 0){
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500 font-bold text-lg"><i class="fas fa-box-open mb-3 text-3xl block"></i>No hay pedidos pagados aún.</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500 font-bold text-lg"><i class="fas fa-box-open mb-3 text-3xl block"></i>No hay pedidos registrados aún.</td></tr>`;
                     updateStatsUI(0, 0, 0); return;
                 }
 
@@ -144,7 +139,8 @@
                     const dateObj = new Date(order.createdAt.seconds * 1000);
                     const isCurrentMonth = (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear);
 
-                    if(order.status === "Pagado") pendientesCount++;
+                    // Contadores para las estadísticas de arriba
+                    if(order.status === "Pagado" || order.mp_payment_id) pendientesCount++;
                     else if (order.status === "Realizado" && isCurrentMonth) { completadosMesCount++; totalVentasMes += order.total; }
 
                     const formattedDate = dateObj.toLocaleDateString('es-MX') + ' ' + dateObj.toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'});
@@ -170,9 +166,27 @@
                         </div>
                     ` : '';
 
+                    // === LÓGICA DE ETIQUETAS CORREGIDA ===
+                    let statusBadge = '';
                     const isDone = order.status === "Realizado";
-                    const statusBadge = isDone ? `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-double mr-1"></i> Entregado</span>` : `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-money-bill-wave mr-1"></i> Pagado - Por Enviar</span>`;
-                    const actionBtn = isDone ? `<button onclick="updateOrderStatus('${order.id}', 'Pagado')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>` : `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full whitespace-nowrap"><i class="fas fa-check mr-1"></i> Marcar Entregado</button>`;
+                    
+                    if (isDone) {
+                        statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-double mr-1"></i> Entregado</span>`;
+                    } else if (order.status === "Pagado" || order.mp_payment_id) {
+                        statusBadge = `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-money-bill-wave mr-1"></i> Pagado - Por Enviar</span>`;
+                    } else {
+                        // Si no está ni pagado ni entregado, es un intento fallido
+                        statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-times-circle mr-1"></i> Pago Rechazado / Pendiente</span>`;
+                    }
+                    // =====================================
+
+                    // Botones de acción principales
+                    let actionBtn = '';
+                    if (isDone) {
+                        actionBtn = `<button onclick="updateOrderStatus('${order.id}', 'Pagado')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>`;
+                    } else if (order.status === "Pagado" || order.mp_payment_id) {
+                        actionBtn = `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full whitespace-nowrap"><i class="fas fa-check mr-1"></i> Marcar Entregado</button>`;
+                    }
 
                     const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
                     const waLink = `https://wa.me/52${cleanPhone}?text=Hola\%20${encodeURIComponent(order.customerName)},%20te%20escribimos%20de%20Krüger%20sobre%20tu%20reciente%20pedido.`;
@@ -190,14 +204,14 @@
                     html += `
                         <tr class="hover:bg-gray-50 border-b border-gray-100 ${isDone ? 'bg-gray-50/50 opacity-80' : ''}">
                             <td class="px-6 py-5 align-top">
-                                <div class="font-black text-gray-900 text-lg whitespace-nowrap">${order.customerName}</div>
+                                <div class="font-black text-gray-900 text-lg whitespace-nowrap">${order.customerName || 'Cliente'}</div>
                                 <div class="text-xs font-bold text-gray-500 mt-1 mb-2 uppercase whitespace-nowrap"><i class="far fa-calendar-alt mr-1"></i> ${formattedDate}</div>
                                 ${statusBadge}
                                 ${mpBadge}
                             </td>
                             <td class="px-6 py-5 align-top min-w-[200px]">
-                                <div class="text-sm font-bold text-metallic-blue mb-1 whitespace-nowrap"><a href="${waLink}" target="_blank" title="Abrir WhatsApp" class="hover:text-green-500 transition-colors"><i class="fab fa-whatsapp text-green-500 w-5"></i> ${order.customerPhone}</a></div>
-                                <div class="text-sm text-gray-600 leading-tight bg-gray-50 p-2 rounded border border-gray-100 whitespace-normal"><i class="fas fa-map-marker-alt text-metallic-red mr-1"></i> ${order.shippingAddress}</div>
+                                <div class="text-sm font-bold text-metallic-blue mb-1 whitespace-nowrap"><a href="${waLink}" target="_blank" title="Abrir WhatsApp" class="hover:text-green-500 transition-colors"><i class="fab fa-whatsapp text-green-500 w-5"></i> ${order.customerPhone || 'N/A'}</a></div>
+                                <div class="text-sm text-gray-600 leading-tight bg-gray-50 p-2 rounded border border-gray-100 whitespace-normal"><i class="fas fa-map-marker-alt text-metallic-red mr-1"></i> ${order.shippingAddress || 'N/A'}</div>
                             </td>
                             <td class="px-6 py-5 align-top min-w-[250px]">
                                 <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
@@ -212,6 +226,14 @@
                             </td>
                             <td class="px-6 py-5 align-top">
                                 ${actionBtn}
+                                
+                                <!-- NUEVO: BOTÓN ROJO PARA BORRAR PEDIDOS BASURA -->
+                                <div class="mt-4 text-right">
+                                    <button onclick="deleteOrder('${order.id}')" class="text-xs text-red-400 hover:text-red-600 font-bold transition-colors" title="Borrar registro permanentemente">
+                                        <i class="fas fa-trash-alt mr-1"></i> Eliminar Registro
+                                    </button>
+                                </div>
+                                <!-- ============================================ -->
                             </td>
                         </tr>
                     `;
@@ -221,6 +243,15 @@
                 updateStatsUI(totalVentasMes, pendientesCount, completadosMesCount);
             });
         }
+
+        // === NUEVA FUNCIÓN PARA BORRAR PEDIDOS ===
+        window.deleteOrder = async (id) => {
+            if(confirm('¿Estás seguro de eliminar este registro permanentemente? (Ideal para borrar pagos rechazados o pruebas)')) {
+                try { await deleteDoc(doc(db, "orders", id)); } 
+                catch(e) { alert("Error al borrar: " + e.message); }
+            }
+        };
+        // =========================================
 
         window.updateOrderStatus = async (id, status) => {
             const msj = status === 'Realizado' ? '¿Estás seguro de que deseas marcar este pedido como ENTREGADO?' : '¿Estás seguro de que deseas DESHACER este pedido y regresarlo a Pendiente por Enviar?';
@@ -292,7 +323,7 @@
                         <div><h1 class="text-3xl font-black text-gray-900">Catálogo de Productos</h1><p class="text-gray-500 mt-1">Gestiona los modelos que los clientes ven en la tienda.</p></div>
                         <button onclick="showAddForm()" class="bg-metallic-blue hover:bg-blue-900 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition-transform transform hover:-translate-y-1"><i class="fas fa-plus"></i> Nuevo Equipo</button>
                     </div>
-                    <!-- AQUÍ ESTÁ EL CAMBIO PARA EL CELULAR -->
+                    <!-- CONTENEDOR CON SCROLL PARA CELULAR -->
                     <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50"><tr><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Foto</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Modelo</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Tecnología</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Precio</th><th class="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Acciones</th></tr></thead>
@@ -307,7 +338,7 @@
                         <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-clock mr-1"></i> Pagados - Por enviar</p><h3 class="text-4xl font-black text-blue-600" id="stat-pendientes">0</h3></div>
                         <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-check-double mr-1"></i> Entregados (Mes)</p><h3 class="text-4xl font-black text-metallic-blue" id="stat-completados">0</h3></div>
                     </div>
-                    <!-- AQUÍ ESTÁ EL CAMBIO PARA EL CELULAR -->
+                    <!-- CONTENEDOR CON SCROLL PARA CELULAR -->
                     <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50"><tr><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Cliente y Estado</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Contacto y Envío</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase w-1/3">Detalle del Pedido</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Monto Final</th><th class="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Acciones</th></tr></thead>
