@@ -26,9 +26,9 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // Variables globales para la edición de productos
-        let adminProducts = [];
-        let editingProductId = null;
+        // Variables para la edición de productos
+        let productsList = [];
+        let editingId = null;
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
@@ -68,10 +68,10 @@
         // ================= INVENTARIO =================
         function loadInventory() {
             onSnapshot(collection(db, "products"), (snapshot) => {
-                adminProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                productsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const tbody = document.getElementById('admin-table-body');
                 
-                tbody.innerHTML = adminProducts.map(data => {
+                tbody.innerHTML = productsList.map(data => {
                     const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';
                     
                     const priceDisplay = data.originalPrice && data.originalPrice > data.price 
@@ -100,12 +100,12 @@
             if(confirm('¿Eliminar este calentador permanentemente?')) await deleteDoc(doc(db, "products", id));
         };
 
-        // Lógica de Edición
+        // ====== LÓGICA DE EDICIÓN ======
         window.editProduct = (id) => {
-            const p = adminProducts.find(x => x.id === id);
+            const p = productsList.find(x => x.id === id);
             if (!p) return;
             
-            editingProductId = id;
+            editingId = id;
             document.getElementById('modal-title').innerText = "Editar Calentador";
             document.getElementById('save-btn').innerHTML = "<i class='fas fa-save mr-2'></i> Actualizar Producto";
 
@@ -114,20 +114,14 @@
             document.getElementById('p-original-price').value = p.originalPrice || '';
             document.getElementById('p-price').value = p.price || '';
             document.getElementById('p-install').value = p.installPrice || '';
+            document.getElementById('p-type').value = p.type || 'Línea Platino';
             document.getElementById('p-image').value = p.image || '';
 
-            // Revisamos si la categoría guardada tiene el gas (por si tenías guardados viejos)
-            let catStr = p.type || '';
-            if (catStr.includes(' - ')) {
-                catStr = catStr.split(' - ')[0]; // Solo tomamos la categoría sin el gas
-            }
-            
-            document.getElementById('p-type').value = catStr;
             document.getElementById('product-form-modal').classList.remove('hidden');
         };
 
         window.showAddForm = () => {
-            editingProductId = null;
+            editingId = null;
             document.getElementById('modal-title').innerText = "Nuevo Calentador";
             document.getElementById('save-btn').innerText = "Guardar Producto";
             document.getElementById('new-product-form').reset();
@@ -135,7 +129,7 @@
         };
         
         window.hideAddForm = () => {
-            editingProductId = null;
+            editingId = null;
             document.getElementById('product-form-modal').classList.add('hidden');
             document.getElementById('new-product-form').reset();
         };
@@ -144,25 +138,25 @@
             e.preventDefault();
             const btn = document.getElementById('save-btn');
             const originalText = btn.innerHTML;
-            btn.innerText = "Guardando..."; btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Guardando...'; 
+            btn.disabled = true;
 
             const installVal = parseFloat(document.getElementById('p-install').value);
             const origPriceVal = parseFloat(document.getElementById('p-original-price').value);
-            const pType = document.getElementById('p-type').value;
 
             const productData = {
                 name: document.getElementById('p-name').value,
                 price: parseFloat(document.getElementById('p-price').value),
                 originalPrice: isNaN(origPriceVal) ? 0 : origPriceVal,
                 installPrice: isNaN(installVal) ? 0 : installVal,
-                type: pType, 
+                type: document.getElementById('p-type').value, 
                 description: document.getElementById('p-desc').value,
                 image: document.getElementById('p-image').value
             };
 
             try {
-                if (editingProductId) {
-                    await updateDoc(doc(db, "products", editingProductId), productData);
+                if (editingId) {
+                    await updateDoc(doc(db, "products", editingId), productData);
                 } else {
                     await addDoc(collection(db, "products"), productData);
                 }
