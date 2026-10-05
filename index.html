@@ -69,11 +69,17 @@
                     const data = doc.data();
                     const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';
                     
+                    const priceDisplay = data.originalPrice && data.originalPrice > data.price 
+                        ? `<span class="text-sm text-gray-400 line-through block leading-none">$${data.originalPrice.toLocaleString('es-MX')}</span><span class="font-black text-metallic-red text-lg leading-none">$${data.price.toLocaleString('es-MX')}</span>`
+                        : `<span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>`;
+                    
                     return `
                         <tr class="hover:bg-gray-50 border-b border-gray-100">
                             <td class="px-6 py-4 whitespace-nowrap"><img src="${data.image}" class="h-16 w-16 rounded-lg object-contain bg-white border p-1"></td>
                             <td class="px-6 py-4 font-bold text-gray-900">${data.name}</td>
-                            <td class="px-6 py-4 text-gray-600 text-sm">${data.type}</td>                             <td class="px-6 py-4">                                 <span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>${installText}
+                            <td class="px-6 py-4 text-gray-600 text-sm">${data.type}</td>
+                            <td class="px-6 py-4">
+                                ${priceDisplay}${installText}
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <button onclick="deleteProduct('${doc.id}')" class="text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors"><i class="fas fa-trash-alt"></i></button>
@@ -88,7 +94,10 @@
             if(confirm('¿Eliminar este calentador permanentemente?')) await deleteDoc(doc(db, "products", id));
         };
 
-        window.showAddForm = () => document.getElementById('product-form-modal').classList.remove('hidden');
+        window.showAddForm = () => {
+            document.getElementById('product-form-modal').classList.remove('hidden');
+        };
+        
         window.hideAddForm = () => {
             document.getElementById('product-form-modal').classList.add('hidden');
             document.getElementById('new-product-form').reset();
@@ -100,11 +109,15 @@
             btn.innerText = "Guardando..."; btn.disabled = true;
 
             const installVal = parseFloat(document.getElementById('p-install').value);
+            const origPriceVal = parseFloat(document.getElementById('p-original-price').value);
+            const pType = document.getElementById('p-type').value;
+
             const newProduct = {
                 name: document.getElementById('p-name').value,
                 price: parseFloat(document.getElementById('p-price').value),
+                originalPrice: isNaN(origPriceVal) ? 0 : origPriceVal,
                 installPrice: isNaN(installVal) ? 0 : installVal,
-                type: document.getElementById('p-type').value,
+                type: pType, 
                 description: document.getElementById('p-desc').value,
                 image: document.getElementById('p-image').value
             };
@@ -139,7 +152,6 @@
                     const dateObj = new Date(order.createdAt.seconds * 1000);
                     const isCurrentMonth = (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear);
 
-                    // Contadores para las estadísticas de arriba
                     if(order.status === "Pagado" || order.mp_payment_id) pendientesCount++;
                     else if (order.status === "Realizado" && isCurrentMonth) { completadosMesCount++; totalVentasMes += order.total; }
 
@@ -148,7 +160,8 @@
                     const listaItems = order.items || [];
                     const itemsHtml = listaItems.length > 0 ? listaItems.map(i => `
                         <div class="text-sm mb-1 text-gray-800 bg-white p-2 rounded border border-gray-100 shadow-sm whitespace-normal">
-                            <strong class="text-metallic-blue">${i.quantity}x</strong> ${i.name}${i.wantsInstall ? '<span class="text-metallic-red font-bold text-xs ml-1 block mt-1"><i class="fas fa-plus"></i> Instalación Incluida</span>' : ''}
+                            <strong class="text-metallic-blue">${i.quantity}x</strong> ${i.name}${i.gasType ? `<span class="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded border border-orange-100 ml-1 whitespace-nowrap"><i class="fas fa-fire mr-1"></i>${i.gasType}</span>` : ''}
+                            ${i.wantsInstall ? '<span class="text-metallic-red font-bold text-xs ml-1 block mt-1"><i class="fas fa-plus"></i> Instalación Incluida</span>' : ''}
                         </div>
                     `).join('') : '<span class="text-gray-400 italic">Productos no registrados</span>';
                     
@@ -166,7 +179,6 @@
                         </div>
                     ` : '';
 
-                    // === LÓGICA DE ETIQUETAS CORREGIDA ===
                     let statusBadge = '';
                     const isDone = order.status === "Realizado";
                     
@@ -175,12 +187,9 @@
                     } else if (order.status === "Pagado" || order.mp_payment_id) {
                         statusBadge = `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-money-bill-wave mr-1"></i> Pagado - Por Enviar</span>`;
                     } else {
-                        // Si no está ni pagado ni entregado, es un intento fallido
                         statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-times-circle mr-1"></i> Pago Rechazado / Pendiente</span>`;
                     }
-                    // =====================================
 
-                    // Botones de acción principales
                     let actionBtn = '';
                     if (isDone) {
                         actionBtn = `<button onclick="updateOrderStatus('${order.id}', 'Pagado')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>`;
@@ -227,13 +236,11 @@
                             <td class="px-6 py-5 align-top">
                                 ${actionBtn}
                                 
-                                <!-- NUEVO: BOTÓN ROJO PARA BORRAR PEDIDOS BASURA -->
                                 <div class="mt-4 text-right">
                                     <button onclick="deleteOrder('${order.id}')" class="text-xs text-red-400 hover:text-red-600 font-bold transition-colors" title="Borrar registro permanentemente">
                                         <i class="fas fa-trash-alt mr-1"></i> Eliminar Registro
                                     </button>
                                 </div>
-                                <!-- ============================================ -->
                             </td>
                         </tr>
                     `;
@@ -244,14 +251,12 @@
             });
         }
 
-        // === NUEVA FUNCIÓN PARA BORRAR PEDIDOS ===
         window.deleteOrder = async (id) => {
             if(confirm('¿Estás seguro de eliminar este registro permanentemente? (Ideal para borrar pagos rechazados o pruebas)')) {
                 try { await deleteDoc(doc(db, "orders", id)); } 
                 catch(e) { alert("Error al borrar: " + e.message); }
             }
         };
-        // =========================================
 
         window.updateOrderStatus = async (id, status) => {
             const msj = status === 'Realizado' ? '¿Estás seguro de que deseas marcar este pedido como ENTREGADO?' : '¿Estás seguro de que deseas DESHACER este pedido y regresarlo a Pendiente por Enviar?';
@@ -352,16 +357,42 @@
     </div>
 
     <div id="product-form-modal" class="fixed inset-0 bg-metallic-blue/80 hidden flex items-center justify-center p-4 backdrop-blur-sm z-50">
-        <div class="bg-white rounded-3xl max-w-xl w-full p-8 shadow-2xl">
+        <!-- AQUÍ ESTÁ EL CAMBIO: max-h-[90vh] y overflow-y-auto -->
+        <div class="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 class="text-2xl font-black text-metallic-blue mb-6">Nuevo Calentador</h3>
             <form id="new-product-form" class="space-y-4">
                 <div><label class="block text-sm font-bold text-gray-700 mb-1">Modelo</label><input type="text" id="p-name" placeholder="Ej: Krüger Minimax 6L" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></div>
                 <div><label class="block text-sm font-bold text-gray-700 mb-1">Descripción corta y técnica</label><textarea id="p-desc" rows="2" placeholder="Información del producto para la ficha técnica..." required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></textarea></div>
-                <div class="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">Precio (MXN)</label><input type="number" id="p-price" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white"></div>
-                    <div><label class="block text-sm font-bold text-metallic-blue mb-1">Instalación León</label><input type="number" id="p-install" placeholder="Ej: 800 (Opcional)" class="w-full border border-blue-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white"></div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Precio Original (Tachado)</label>
+                        <input type="number" id="p-original-price" placeholder="Opcional" class="w-full border border-gray-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-metallic-red mb-1">Precio Final (Venta)</label>
+                        <input type="number" id="p-price" required class="w-full border border-red-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-red bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-metallic-blue mb-1">Instalación León</label>
+                        <input type="number" id="p-install" placeholder="Ej: 800 (Opc.)" class="w-full border border-blue-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white">
+                    </div>
                 </div>
-                <div><label class="block text-sm font-bold text-gray-700 mb-1">Tecnología</label><select id="p-type" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:ring-2 focus:ring-metallic-blue"><option>Instantáneo</option><option>Silver</option><option>De Paso</option><option>Depósito</option><option>Eléctrico</option></select></div>
+                
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Categoría / Línea</label>
+                        <select id="p-type" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:ring-2 focus:ring-metallic-blue">
+                            <option value="Línea Silver">Línea Silver</option>
+                            <option value="Línea Platinum">Línea Platinum</option>
+                            <option value="Instantáneos">Instantáneos</option>
+                            <option value="Solares">Solares</option>
+                            <option value="Eléctricos">Eléctricos</option>
+                            <option value="Parrillas">Parrillas</option>
+                            <option value="Accesorios">Accesorios</option>
+                        </select>
+                    </div>
+                </div>
                 
                 <div>
                     <label class="block text-sm font-bold text-gray-700 mb-1">URL de la Imagen (PNG, JPG)</label>
