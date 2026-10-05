@@ -3,6 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Etiquetas anti-caché -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
     <title>Krüger | Panel de Administración Seguro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -26,7 +31,7 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // Variables para la edición de productos
+        // Variables globales para la edición
         let productsList = [];
         let editingId = null;
 
@@ -61,7 +66,8 @@
             document.getElementById('btn-pedidos').classList.replace('text-white', 'text-gray-600');
             
             document.getElementById(`tab-${tabName}`).classList.remove('hidden');
-            document.getElementById(`btn-${tabName}`).classList.replace('bg-gray-200', 'bg-metallic-blue');             document.getElementById(`btn-${tabName}`).classList.replace('text-gray-600', 'text-white');
+            document.getElementById(`btn-${tabName}`).classList.replace('bg-gray-200', 'bg-metallic-blue');
+            document.getElementById(`btn-${tabName}`).classList.replace('text-gray-600', 'text-white');
         };
 
         // ================= INVENTARIO =================
@@ -71,7 +77,11 @@
                 const tbody = document.getElementById('admin-table-body');
                 
                 tbody.innerHTML = productsList.map(data => {
-                    const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';                                          const priceDisplay = data.originalPrice && data.originalPrice > data.price                          ? `<span class="text-sm text-gray-400 line-through block leading-none">$${data.originalPrice.toLocaleString('es-MX')}</span><span class="font-black text-metallic-red text-lg leading-none">$${data.price.toLocaleString('es-MX')}</span>`                         : `<span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>`;
+                    const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';
+                    
+                    const priceDisplay = data.originalPrice && data.originalPrice > data.price 
+                        ? `<span class="text-sm text-gray-400 line-through block leading-none">$${data.originalPrice.toLocaleString('es-MX')}</span><span class="font-black text-metallic-red text-lg leading-none">$${data.price.toLocaleString('es-MX')}</span>`
+                        : `<span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>`;
                     
                     return `
                         <tr class="hover:bg-gray-50 border-b border-gray-100">
@@ -111,13 +121,16 @@
             document.getElementById('p-install').value = p.installPrice || '';
             document.getElementById('p-image').value = p.image || '';
 
-            // Limpiamos el texto por si tiene " - Gas LP" pegado de un producto viejo
+            // Limpieza de compatibilidad por si la categoría antigua tiene " - Gas LP"
             let categoryText = p.type || 'Línea Platino';
             if (categoryText.includes(' - ')) {
                 categoryText = categoryText.split(' - ')[0];
             }
+            if (categoryText === 'Línea Platinum' || categoryText === 'Platinum') {
+                categoryText = 'Línea Platino';
+            }
+            
             document.getElementById('p-type').value = categoryText;
-
             document.getElementById('product-form-modal').classList.remove('hidden');
         };
 
@@ -353,7 +366,11 @@
                     <button id="btn-inventario" onclick="switchTab('inventario')" class="px-6 py-1.5 rounded-lg font-bold text-sm bg-metallic-blue text-white transition-colors">Inventario</button>
                     <button id="btn-pedidos" onclick="switchTab('pedidos')" class="px-6 py-1.5 rounded-lg font-bold text-sm bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors">Ver Pedidos</button>
                 </div>
-                <div class="flex items-center gap-6"><span class="text-sm text-gray-500 font-medium hidden md:block" id="user-email"></span><button onclick="logout()" class="text-sm text-red-500 font-bold hover:text-red-700"><i class="fas fa-sign-out-alt"></i> Salir</button></div>
+                <div class="flex items-center gap-4 md:gap-6">
+                    <span class="text-[10px] text-gray-400 font-bold hidden md:block">v2.2</span>
+                    <span class="text-sm text-gray-500 font-medium hidden md:block" id="user-email"></span>
+                    <button onclick="logout()" class="text-sm text-red-500 font-bold hover:text-red-700"><i class="fas fa-sign-out-alt"></i> Salir</button>
+                </div>
             </div>
         </nav>
 
