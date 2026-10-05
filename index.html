@@ -26,6 +26,10 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
+        // Variables globales para la edición de productos
+        let adminProducts = [];
+        let editingProductId = null;
+
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 document.getElementById('user-email').innerText = user.email;
@@ -64,9 +68,10 @@
         // ================= INVENTARIO =================
         function loadInventory() {
             onSnapshot(collection(db, "products"), (snapshot) => {
+                adminProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const tbody = document.getElementById('admin-table-body');
-                tbody.innerHTML = snapshot.docs.map(doc => {
-                    const data = doc.data();
+                
+                tbody.innerHTML = adminProducts.map(data => {
                     const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';
                     
                     const priceDisplay = data.originalPrice && data.originalPrice > data.price 
@@ -81,8 +86,9 @@
                             <td class="px-6 py-4">
                                 ${priceDisplay}${installText}
                             </td>
-                            <td class="px-6 py-4 text-right">
-                                <button onclick="deleteProduct('${doc.id}')" class="text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors"><i class="fas fa-trash-alt"></i></button>
+                            <td class="px-6 py-4 text-right whitespace-nowrap">
+                                <button onclick="editProduct('${data.id}')" title="Editar Producto" class="text-blue-500 hover:text-blue-700 font-bold bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors mr-2"><i class="fas fa-edit"></i></button>
+                                <button onclick="deleteProduct('${data.id}')" title="Eliminar Producto" class="text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors"><i class="fas fa-trash-alt"></i></button>
                             </td>
                         </tr>
                     `;
@@ -94,11 +100,42 @@
             if(confirm('¿Eliminar este calentador permanentemente?')) await deleteDoc(doc(db, "products", id));
         };
 
+        // Lógica de Edición
+        window.editProduct = (id) => {
+            const p = adminProducts.find(x => x.id === id);
+            if (!p) return;
+            
+            editingProductId = id;
+            document.getElementById('modal-title').innerText = "Editar Calentador";
+            document.getElementById('save-btn').innerHTML = "<i class='fas fa-save mr-2'></i> Actualizar Producto";
+
+            document.getElementById('p-name').value = p.name || '';
+            document.getElementById('p-desc').value = p.description || '';
+            document.getElementById('p-original-price').value = p.originalPrice || '';
+            document.getElementById('p-price').value = p.price || '';
+            document.getElementById('p-install').value = p.installPrice || '';
+            document.getElementById('p-image').value = p.image || '';
+
+            // Revisamos si la categoría guardada tiene el gas (por si tenías guardados viejos)
+            let catStr = p.type || '';
+            if (catStr.includes(' - ')) {
+                catStr = catStr.split(' - ')[0]; // Solo tomamos la categoría sin el gas
+            }
+            
+            document.getElementById('p-type').value = catStr;
+            document.getElementById('product-form-modal').classList.remove('hidden');
+        };
+
         window.showAddForm = () => {
+            editingProductId = null;
+            document.getElementById('modal-title').innerText = "Nuevo Calentador";
+            document.getElementById('save-btn').innerText = "Guardar Producto";
+            document.getElementById('new-product-form').reset();
             document.getElementById('product-form-modal').classList.remove('hidden');
         };
         
         window.hideAddForm = () => {
+            editingProductId = null;
             document.getElementById('product-form-modal').classList.add('hidden');
             document.getElementById('new-product-form').reset();
         };
@@ -106,13 +143,14 @@
         document.getElementById('new-product-form').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('save-btn');
+            const originalText = btn.innerHTML;
             btn.innerText = "Guardando..."; btn.disabled = true;
 
             const installVal = parseFloat(document.getElementById('p-install').value);
             const origPriceVal = parseFloat(document.getElementById('p-original-price').value);
             const pType = document.getElementById('p-type').value;
 
-            const newProduct = {
+            const productData = {
                 name: document.getElementById('p-name').value,
                 price: parseFloat(document.getElementById('p-price').value),
                 originalPrice: isNaN(origPriceVal) ? 0 : origPriceVal,
@@ -123,10 +161,14 @@
             };
 
             try {
-                await addDoc(collection(db, "products"), newProduct);
+                if (editingProductId) {
+                    await updateDoc(doc(db, "products", editingProductId), productData);
+                } else {
+                    await addDoc(collection(db, "products"), productData);
+                }
                 hideAddForm();
             } catch (error) { alert("Error: " + error.message); } 
-            finally { btn.innerText = "Guardar Producto"; btn.disabled = false; }
+            finally { btn.innerHTML = originalText; btn.disabled = false; }
         });
 
         // ================= PEDIDOS =================
@@ -356,26 +398,26 @@
         </div>
     </div>
 
+    <!-- MODAL PARA AGREGAR/EDITAR PRODUCTO -->
     <div id="product-form-modal" class="fixed inset-0 bg-metallic-blue/80 hidden flex items-center justify-center p-4 backdrop-blur-sm z-50">
-        <!-- AQUÍ ESTÁ EL CAMBIO: max-h-[90vh] y overflow-y-auto -->
         <div class="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 class="text-2xl font-black text-metallic-blue mb-6">Nuevo Calentador</h3>
+            <h3 id="modal-title" class="text-2xl font-black text-metallic-blue mb-6">Nuevo Calentador</h3>
             <form id="new-product-form" class="space-y-4">
                 <div><label class="block text-sm font-bold text-gray-700 mb-1">Modelo</label><input type="text" id="p-name" placeholder="Ej: Krüger Minimax 6L" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></div>
                 <div><label class="block text-sm font-bold text-gray-700 mb-1">Descripción corta y técnica</label><textarea id="p-desc" rows="2" placeholder="Información del producto para la ficha técnica..." required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></textarea></div>
                 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Precio Original (Tachado)</label>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Precio Original</label>
                         <input type="number" id="p-original-price" placeholder="Opcional" class="w-full border border-gray-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-bold text-metallic-red mb-1">Precio Final (Venta)</label>
+                        <label class="block text-sm font-bold text-metallic-red mb-1">Precio Venta</label>
                         <input type="number" id="p-price" required class="w-full border border-red-300 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-red bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-bold text-metallic-blue mb-1">Instalación León</label>
-                        <input type="number" id="p-install" placeholder="Ej: 800 (Opc.)" class="w-full border border-blue-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white">
+                        <label class="block text-sm font-bold text-metallic-blue mb-1">Instalación (Opc)</label>
+                        <input type="number" id="p-install" placeholder="Ej: 800" class="w-full border border-blue-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-white">
                     </div>
                 </div>
                 
@@ -384,7 +426,7 @@
                         <label class="block text-sm font-bold text-gray-700 mb-1">Categoría / Línea</label>
                         <select id="p-type" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:ring-2 focus:ring-metallic-blue">
                             <option value="Línea Silver">Línea Silver</option>
-                            <option value="Línea Platinum">Línea Platinum</option>
+                            <option value="Línea Platino">Línea Platino</option>
                             <option value="Instantáneos">Instantáneos</option>
                             <option value="Solares">Solares</option>
                             <option value="Eléctricos">Eléctricos</option>
@@ -395,8 +437,8 @@
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-1">URL de la Imagen (PNG, JPG)</label>
-                    <input type="url" id="p-image" placeholder="https://ejemplo.com/foto.png" required class="w-full border border-gray-200 rounded-xl p-3 text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-metallic-blue">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">URL de la Imagen (Cloudinary)</label>
+                    <input type="url" id="p-image" placeholder="https://res.cloudinary.com/..." required class="w-full border border-gray-200 rounded-xl p-3 text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-metallic-blue">
                 </div>
 
                 <div class="flex items-center justify-end mt-8">
