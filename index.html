@@ -3,37 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Krüger | Calentadores de Agua - Distribuidor Autorizado</title>
-    <link rel="icon" type="image/ico" href="./kru.ico">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     
+    <title>Krüger | Panel de Administración Seguro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&display=swap" rel="stylesheet">
-    
-    <!-- SDK DE MERCADO PAGO -->
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
-
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Outfit', 'sans-serif'], },
-                    colors: { 'metallic-blue': '#002855', 'metallic-red': '#D31145', 'metallic-silver': '#E8ECEF' }
-                }
-            }
-        }
-    </script>
-    <style>
-        body { font-family: 'Outfit', sans-serif; background-color: #F8F9FA; }
-        .glass-nav { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(0, 0, 0, 0.05); }
-        .glass-card { background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.5); box-shadow: 0 8px 32px 0 rgba(0, 40, 85, 0.05); }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    </style>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCSdcopQjbZoYwcgwjB8uhosN-yY11kMdQ",
@@ -43,691 +25,399 @@
             messagingSenderId: "675310203131",
             appId: "1:675310203131:web:aaec21767633143169805e"
         };
+        
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
-        const mp = new MercadoPago('APP_USR-80117618-df58-4d18-8140-3b3e5f4c1f5d', { locale: 'es-MX' });
+        let productsList = [];
+        let editingId = null;
 
-        let products = [];
-        let cart = JSON.parse(localStorage.getItem('krugerCart')) || [];
-        let currentActiveProduct = null;
-        let activeCategory = 'Todos'; 
-
-        const productsGrid = document.getElementById('products-grid');
-        const cartCount = document.getElementById('cart-count');
-        const cartModal = document.getElementById('cart-modal');
-        const cartItemsList = document.getElementById('cart-items');
-        const cartTotal = document.getElementById('cart-total');
-        const checkoutModal = document.getElementById('checkout-modal');
-        const finalTotal = document.getElementById('final-total');
-        const detailModal = document.getElementById('product-detail-modal');
-
-        onSnapshot(collection(db, "products"), (snapshot) => {
-            products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            renderProducts();
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                document.getElementById('user-email').innerText = user.email;
+                document.getElementById('login-screen').classList.add('hidden');
+                document.getElementById('admin-dashboard').classList.remove('hidden');
+                loadInventory();
+                loadOrders();
+            } else {
+                document.getElementById('login-screen').classList.remove('hidden');
+                document.getElementById('admin-dashboard').classList.add('hidden');
+            }
         });
 
-        window.filterCat = (cat) => {
-            activeCategory = cat;
-            document.querySelectorAll('.cat-btn').forEach(btn => {
-                if(btn.innerText === cat || (cat === 'Aires Acondicionados Inverter' && btn.innerText === 'Aires Inverter')) {
-                    btn.className = "cat-btn active bg-metallic-blue text-white px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap shadow-md transition-all";
-                } else {
-                    btn.className = "cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all";
-                }
-            });
-            renderProducts();
-        };
-
-        function renderProducts() {
-            if (products.length === 0) {
-                productsGrid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-400 font-medium">Sincronizando inventario con nuestros almacenes...</div>`;
-                return;
-            }
-
-            const filteredProducts = activeCategory === 'Todos' ? products : products.filter(p => {
-                const pType = (p.type || p.category || '').toLowerCase();
-                const searchCat = activeCategory.toLowerCase();
-                return pType.includes(searchCat) || searchCat.includes(pType);
-            });
-
-            if (filteredProducts.length === 0) {
-                productsGrid.innerHTML = `<div class="col-span-full text-center py-12 text-gray-400 font-medium">No hay productos en esta categoría.</div>`;
-                return;
-            }
-
-            productsGrid.innerHTML = filteredProducts.map(product => {
-                const pTypeLower = (product.type || '').toLowerCase();
-                const needsGas = pTypeLower.includes('silver') || pTypeLower.includes('platino') || pTypeLower.includes('instantáneo') || pTypeLower.includes('instantaneo') || pTypeLower.includes('parrilla');
-                
-                let selectsHtml = '';
-                
-                // Lógica de Medidas Personalizadas (Nuevo)
-                if (product.sizes && product.sizes.trim() !== '') {
-                    const sizeOptions = product.sizes.split(',').map(s => s.trim()).filter(s => s);
-                    if (sizeOptions.length > 0) {
-                        selectsHtml += `
-                            <div class="mb-2">
-                                <select id="size-${product.id}" class="w-full text-[10px] sm:text-xs font-semibold border border-purple-200 rounded-lg sm:rounded-xl p-1.5 sm:p-2 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 bg-purple-50 text-purple-800">
-                                    ${sizeOptions.map(s => `<option value="${s}">📏 Medida: ${s}</option>`).join('')}
-                                </select>
-                            </div>
-                        `;
-                    }
-                }
-
-                // Lógica de Gas
-                if (needsGas) {
-                    selectsHtml += `
-                        <div class="mb-2 sm:mb-3">
-                            <select id="gas-${product.id}" class="w-full text-[10px] sm:text-xs font-semibold border border-gray-200 rounded-lg sm:rounded-xl p-1.5 sm:p-2 outline-none focus:border-metallic-blue focus:ring-1 focus:ring-metallic-blue bg-gray-50 text-gray-700">
-                                <option value="Gas LP">🔥 Gas LP</option>
-                                <option value="Gas Natural">🔥 Gas Natural</option>
-                            </select>
-                        </div>
-                    `;
-                }
-
-                let priceHtml = '';
-                if (product.originalPrice && product.originalPrice > product.price) {
-                    priceHtml = `
-                        <div class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 mb-2 sm:mb-4">
-                            <span class="text-[10px] sm:text-sm text-gray-400 line-through font-semibold leading-none">$${product.originalPrice.toLocaleString('es-MX')}</span>
-                            <span class="text-base sm:text-2xl font-black text-metallic-red leading-none">$${product.price.toLocaleString('es-MX')} <span class="text-[9px] sm:text-xs font-medium text-gray-500">MXN</span></span>
-                        </div>
-                    `;
-                } else {
-                    priceHtml = `<p class="text-base sm:text-2xl font-black text-gray-900 mb-2 sm:mb-4">$${product.price.toLocaleString('es-MX')} <span class="text-[9px] sm:text-xs font-medium text-gray-500">MXN</span></p>`;
-                }
-
-                return `
-                <div class="glass-card rounded-2xl md:rounded-3xl overflow-hidden group hover:shadow-[0_20px_40px_rgba(0,40,85,0.1)] transition-all duration-300 relative flex flex-col h-full">
-                    <div onclick="openProductDetail('${product.id}')" class="relative h-32 sm:h-56 overflow-hidden bg-gradient-to-b from-gray-50 to-white flex items-center justify-center p-4 cursor-pointer">
-                        <img src="${product.image}" alt="${product.name}" class="object-contain w-full h-full group-hover:scale-110 transition-transform duration-500 drop-shadow-xl">
-                        <span class="absolute top-2 left-2 bg-metallic-red text-white text-[8px] sm:text-xs font-bold px-2 py-1 rounded-full uppercase tracking-widest shadow-md truncate max-w-[70%] z-10">${product.type || ''}</span>
-                        <div class="absolute bottom-2 right-2 bg-green-500 text-white text-[8px] sm:text-[10px] font-black px-2 py-1 rounded-xl rounded-br-none uppercase tracking-wider shadow-lg flex items-center gap-1 z-10"><i class="fas fa-truck-fast"></i> <span class="hidden sm:inline">Envío Gratis</span></div>
-                    </div>
-                    
-                    <div class="p-3 sm:p-6 flex flex-col flex-1">
-                        <h3 class="text-xs sm:text-lg font-bold text-metallic-blue mb-1 sm:mb-2 line-clamp-2">${product.name}</h3>
-                        ${priceHtml}
-                        <div class="mt-auto">
-                            ${selectsHtml}
-                            ${(product.installPrice && product.installPrice > 0) ? `
-                                <div class="mb-2 sm:mb-4 bg-white/50 p-1.5 sm:p-3 rounded-lg sm:rounded-xl border border-gray-100">
-                                    <label class="flex items-center sm:items-start gap-1.5 sm:gap-3 cursor-pointer">
-                                        <input type="checkbox" id="install-${product.id}" onchange="if(this.checked) { if(!confirm('⚠️ ATENCIÓN: El servicio de instalación es exclusivo para León, Gto. ¿Confirmas?')) this.checked = false; }" class="w-3.5 h-3.5 sm:w-5 sm:h-5 text-metallic-blue rounded border-gray-300">
-                                        <span class="text-[9px] sm:text-sm text-gray-600 font-medium leading-tight">Inst. León <strong class="text-metallic-red">+$${product.installPrice.toLocaleString('es-MX')}</strong></span>
-                                    </label>
-                                </div>
-                            ` : ''}
-                            <button onclick="addToCart('${product.id}')" class="w-full bg-metallic-blue hover:bg-blue-900 text-white text-[10px] sm:text-sm font-semibold py-2 sm:py-3 rounded-lg sm:rounded-xl transition-all duration-300 flex justify-center items-center gap-1.5 shadow-md transform hover:-translate-y-0.5">
-                                <i class="fas fa-cart-plus"></i> <span class="hidden sm:inline">Agregar al carrito</span><span class="sm:hidden">Agregar</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `}).join('');
-        }
-
-        window.openProductDetail = (id) => {
-            currentActiveProduct = products.find(p => p.id === id);
-            const p = currentActiveProduct;
-            
-            document.getElementById('detail-name').innerText = p.name;
-            document.getElementById('detail-category-badge').innerText = p.type || '';
-
-            const detailPrice = document.getElementById('detail-price');
-            if (p.originalPrice && p.originalPrice > p.price) detailPrice.innerHTML = `<span class="text-xl md:text-2xl text-gray-400 line-through mr-3 font-semibold">$${p.originalPrice.toLocaleString('es-MX')}</span><span class="text-metallic-red">$${p.price.toLocaleString('es-MX')} MXN</span>`;
-            else detailPrice.innerHTML = `$${p.price.toLocaleString('es-MX')} MXN`;
-
-            document.getElementById('detail-desc').innerText = p.description || "Calidad y eficiencia comprobada. Diseñado para ofrecer durabilidad y el máximo confort.";
-            document.getElementById('detail-main-img').src = p.image;
-            
-            const detailSelectorsContainer = document.getElementById('detail-selectors-container');
-            let selectsHtml = '';
-
-            // Medidas en el modal
-            if (p.sizes && p.sizes.trim() !== '') {
-                const sizeOptions = p.sizes.split(',').map(s => s.trim()).filter(s => s);
-                if (sizeOptions.length > 0) {
-                    selectsHtml += `
-                        <div class="mb-4">
-                            <label class="block text-sm font-bold text-gray-700 mb-2">Selecciona la medida/talla:</label>
-                            <select id="detail-size-select" class="w-full font-bold border border-purple-200 rounded-xl p-3 outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 bg-purple-50 text-purple-800">
-                                ${sizeOptions.map(s => `<option value="${s}">📏 ${s}</option>`).join('')}
-                            </select>
-                        </div>
-                    `;
-                }
-            }
-
-            // Gas en el modal
-            const pTypeLower = (p.type || '').toLowerCase();
-            const needsGas = pTypeLower.includes('silver') || pTypeLower.includes('platino') || pTypeLower.includes('instantáneo') || pTypeLower.includes('instantaneo') || pTypeLower.includes('parrilla');
-            if(needsGas) {
-                selectsHtml += `
-                    <div class="mb-4">
-                        <label class="block text-sm font-bold text-gray-700 mb-2">Selecciona el tipo de gas:</label>
-                        <select id="detail-gas-select" class="w-full font-bold border border-gray-200 rounded-xl p-3 outline-none focus:border-metallic-blue focus:ring-1 focus:ring-metallic-blue bg-gray-50 text-gray-700">
-                            <option value="Gas LP">🔥 Gas LP</option>
-                            <option value="Gas Natural">🔥 Gas Natural</option>
-                        </select>
-                    </div>
-                `;
-            }
-            detailSelectorsContainer.innerHTML = selectsHtml;
-
-            const installContainer = document.getElementById('detail-install-container');
-            if(p.installPrice > 0) {
-                installContainer.innerHTML = `
-                    <div class="mb-6 bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                        <label class="flex items-start gap-3 cursor-pointer">
-                            <input type="checkbox" id="detail-install-check" onchange="if(this.checked) { if(!confirm('⚠️ ATENCIÓN: El servicio de instalación es exclusivo para León, Gto. ¿Confirmas?')) this.checked = false; }" class="mt-1 w-5 h-5 text-metallic-blue rounded border-gray-300">
-                            <span class="text-sm text-gray-700 font-medium">Agregar Instalación Certificada (León, Gto) <br><strong class="text-metallic-red text-base">+$${p.installPrice.toLocaleString('es-MX')} MXN</strong></span>
-                        </label>
-                    </div>
-                `;
-            } else { installContainer.innerHTML = ''; }
-            
-            detailModal.classList.remove('hidden');
-        };
-
-        window.closeProductDetail = () => { detailModal.classList.add('hidden'); currentActiveProduct = null; };
-
-        window.addDetailToCart = () => {
-            const p = currentActiveProduct;
-            const installCheck = document.getElementById('detail-install-check');
-            const wantsInstall = installCheck ? installCheck.checked : false;
-            
-            const gasSelect = document.getElementById('detail-gas-select');
-            const gasType = gasSelect ? gasSelect.value : null;
-
-            const sizeSelect = document.getElementById('detail-size-select');
-            const selectedSize = sizeSelect ? sizeSelect.value : null;
-            
-            const cartItemId = p.id + (wantsInstall ? '-with-install' : '') + (gasType ? '-' + gasType.replace(/\s+/g, '') : '') + (selectedSize ? '-' + selectedSize.replace(/\s+/g, '') : '');
-            const existing = cart.find(item => item.cartItemId === cartItemId);
-            
-            if (existing) existing.quantity++;
-            else cart.push({ ...p, cartItemId, quantity: 1, wantsInstall, gasType, size: selectedSize });
-            
-            updateCart();
-            closeProductDetail();
-            openCart();
-        };
-
-        window.addToCart = (id) => {
-            const product = products.find(p => p.id === id);
-            const installCheck = document.getElementById(`install-${id}`);
-            const wantsInstall = installCheck ? installCheck.checked : false;
-            
-            const gasSelect = document.getElementById(`gas-${id}`);
-            const gasType = gasSelect ? gasSelect.value : null;
-
-            const sizeSelect = document.getElementById(`size-${id}`);
-            const selectedSize = sizeSelect ? sizeSelect.value : null;
-
-            const cartItemId = id + (wantsInstall ? '-with-install' : '') + (gasType ? '-' + gasType.replace(/\s+/g, '') : '') + (selectedSize ? '-' + selectedSize.replace(/\s+/g, '') : '');
-            const existingItem = cart.find(item => item.cartItemId === cartItemId);
-            
-            if (existingItem) existingItem.quantity++;
-            else cart.push({ ...product, cartItemId, quantity: 1, wantsInstall, gasType, size: selectedSize });
-            
-            if(installCheck) installCheck.checked = false;
-            updateCart();
-            openCart();
-        };
-
-        window.removeFromCart = (cartItemId) => {
-            cart = cart.filter(item => item.cartItemId !== cartItemId);
-            updateCart();
-        };
-
-        function updateCart() {
-            localStorage.setItem('krugerCart', JSON.stringify(cart));
-            
-            cartCount.innerText = cart.reduce((sum, item) => sum + item.quantity, 0);
-            const total = cart.reduce((sum, item) => sum + ((item.price + (item.wantsInstall ? item.installPrice : 0)) * item.quantity), 0);
-
-            cartTotal.innerText = `$${total.toLocaleString('es-MX')}`;
-            if(finalTotal) finalTotal.innerText = `$${total.toLocaleString('es-MX')} MXN`;
-
-            if (cart.length === 0) {
-                cartItemsList.innerHTML = `<p class="text-gray-500 text-center py-10">Tu carrito está vacío</p>`;
-            } else {
-                cartItemsList.innerHTML = cart.map(item => `
-                    <div class="flex items-center gap-4 bg-white p-4 rounded-2xl shadow-sm mb-4 border border-gray-50 relative">
-                        <img src="${item.image}" class="w-16 h-16 object-contain rounded-xl bg-gray-50 p-2">
-                        <div class="flex-1 pr-6">
-                            <h4 class="font-bold text-gray-800 text-sm mb-1">${item.name}</h4>
-                            <p class="text-metallic-red font-bold text-lg">$${item.price.toLocaleString('es-MX')}</p>
-                            ${item.gasType ? `<span class="inline-block bg-orange-50 text-orange-600 border border-orange-100 text-[10px] font-bold px-1.5 py-0.5 rounded mb-1"><i class="fas fa-fire mr-1"></i>${item.gasType}</span><br>` : ''}
-                            ${item.size ? `<span class="inline-block bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold px-1.5 py-0.5 rounded mb-1"><i class="fas fa-ruler-horizontal mr-1"></i>${item.size}</span><br>` : ''}
-                            ${item.wantsInstall ? `<p class="text-xs text-metallic-blue font-bold">+ Inst. $${item.installPrice.toLocaleString('es-MX')}</p>` : ''}
-                            <span class="text-xs text-gray-500">Cant: ${item.quantity}</span>
-                        </div>
-                        <button onclick="removeFromCart('${item.cartItemId}')" class="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt"></i></button>
-                    </div>
-                `).join('');
-            }
-        }
-
-        window.openCart = () => cartModal.classList.remove('translate-x-full');
-        window.closeCart = () => cartModal.classList.add('translate-x-full');
-        
-        window.openCheckout = () => {
-            if(cart.length === 0) return alert("Tu carrito está vacío");
-            
-            const needsInstall = cart.some(item => item.wantsInstall);
-            if(needsInstall) {
-                document.getElementById('installation-fields').classList.remove('hidden');
-                document.getElementById('c-schedule').setAttribute('required', 'true');
-            } else {
-                document.getElementById('installation-fields').classList.add('hidden');
-                document.getElementById('c-schedule').removeAttribute('required');
-            }
-
-            const checkoutItemsList = document.getElementById('checkout-items-list');
-            checkoutItemsList.innerHTML = cart.map(item => `
-                <div class="flex items-center gap-3 bg-white p-2.5 rounded-xl border border-gray-100 shadow-sm">
-                    <img src="${item.image}" class="w-12 h-12 object-contain bg-gray-50 rounded-lg p-1">
-                    <div class="flex-1 min-w-0">
-                        <h4 class="text-xs font-bold text-gray-800 leading-tight truncate">${item.name}</h4>
-                        <div class="text-[10px] text-gray-500 mt-0.5">
-                            Cant: ${item.quantity} 
-                            ${item.gasType ? `<span class="text-orange-500 font-bold ml-1">(${item.gasType})</span>` : ''}
-                            ${item.size ? `<span class="text-purple-600 font-bold ml-1">(${item.size})</span>` : ''}
-                            ${item.wantsInstall ? '<span class="text-metallic-red font-bold ml-1">(+Inst.)</span>' : ''}
-                        </div>
-                    </div>
-                    <div class="text-sm font-black text-metallic-blue whitespace-nowrap">
-                        $${((item.price + (item.wantsInstall ? item.installPrice : 0)) * item.quantity).toLocaleString('es-MX')}
-                    </div>
-                </div>
-            `).join('');
-
-            const total = cart.reduce((sum, item) => sum + ((item.price + (item.wantsInstall ? item.installPrice : 0)) * item.quantity), 0);
-            const subtotal = total / 1.16;
-            const iva = total - subtotal;
-
-            document.getElementById('checkout-subtotal').innerText = '$' + subtotal.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            document.getElementById('checkout-iva').innerText = '$' + iva.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            document.getElementById('final-total').innerText = '$' + total.toLocaleString('es-MX') + ' MXN';
-
-            closeCart();
-            checkoutModal.classList.remove('hidden');
-        };
-        
-        window.closeCheckout = () => checkoutModal.classList.add('hidden');
-
-        document.getElementById('c-same-address').addEventListener('change', (e) => {
-            const el = document.getElementById('c-install-address-container'); 
-            const input = document.getElementById('c-install-address');
-            if(e.target.checked) { el.classList.add('hidden'); input.removeAttribute('required'); } 
-            else { el.classList.remove('hidden'); input.setAttribute('required', 'true'); }
-        });
-
-        function setupAutocomplete(inputId, listId) {
-            const input = document.getElementById(inputId);
-            const list = document.getElementById(listId);
-            let timeout = null;
-            input.addEventListener('input', function() {
-                clearTimeout(timeout);
-                const query = this.value;
-                if (query.length < 5) { list.classList.add('hidden'); return; }
-                timeout = setTimeout(() => {
-                    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=mx&limit=5`)
-                        .then(res => res.json())
-                        .then(data => {
-                            list.innerHTML = '';
-                            if (data.length > 0) {
-                                data.forEach(item => {
-                                    const li = document.createElement('li');
-                                    li.className = 'p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 text-sm text-gray-700 flex items-start gap-2';
-                                    li.innerHTML = `<i class="fas fa-map-marker-alt text-metallic-red mt-1"></i> <span>${item.display_name}</span>`;
-                                    li.onclick = () => { input.value = item.display_name; list.classList.add('hidden'); };
-                                    list.appendChild(li);
-                                });
-                                list.classList.remove('hidden');
-                            } else { list.classList.add('hidden'); }
-                        });
-                }, 500); 
-            });
-            document.addEventListener('click', function(e) { if (e.target !== input && e.target !== list) list.classList.add('hidden'); });
-        }
-
-        document.getElementById('checkout-form').addEventListener('submit', async (e) => {
+        document.getElementById('login-form').addEventListener('submit', (e) => {
             e.preventDefault();
-            const btn = document.getElementById('btn-process-order');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Cargando terminal...';
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            signInWithEmailAndPassword(auth, email, password).catch((error) => alert('Error: ' + error.message));
+        });
+
+        window.logout = () => signOut(auth).catch((error) => alert(error));
+
+        window.switchTab = (tabName) => {
+            document.getElementById('tab-inventario').classList.add('hidden');
+            document.getElementById('tab-pedidos').classList.add('hidden');
+            document.getElementById('btn-inventario').classList.replace('bg-metallic-blue', 'bg-gray-200');
+            document.getElementById('btn-inventario').classList.replace('text-white', 'text-gray-600');
+            document.getElementById('btn-pedidos').classList.replace('bg-metallic-blue', 'bg-gray-200');
+            document.getElementById('btn-pedidos').classList.replace('text-white', 'text-gray-600');
+            
+            document.getElementById(`tab-${tabName}`).classList.remove('hidden');
+            document.getElementById(`btn-${tabName}`).classList.replace('bg-gray-200', 'bg-metallic-blue');
+            document.getElementById(`btn-${tabName}`).classList.replace('text-gray-600', 'text-white');
+        };
+
+        function loadInventory() {
+            onSnapshot(collection(db, "products"), (snapshot) => {
+                productsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const tbody = document.getElementById('admin-table-body');
+                
+                tbody.innerHTML = productsList.map(data => {
+                    const installText = data.installPrice > 0 ? `<br><span class="text-xs text-blue-600 font-bold px-2 py-1 bg-blue-50 rounded mt-1 inline-block"><i class="fas fa-tools mr-1"></i> Inst: $${data.installPrice}</span>` : '';
+                    const sizesText = data.sizes ? `<br><span class="text-[10px] text-purple-600 font-bold px-2 py-1 bg-purple-50 rounded mt-1 inline-block"><i class="fas fa-ruler"></i> Medidas activas</span>` : '';
+                    
+                    const priceDisplay = data.originalPrice && data.originalPrice > data.price 
+                        ? `<span class="text-sm text-gray-400 line-through block leading-none">$${data.originalPrice.toLocaleString('es-MX')}</span><span class="font-black text-metallic-red text-lg leading-none">$${data.price.toLocaleString('es-MX')}</span>`
+                        : `<span class="font-bold text-metallic-blue text-lg">$${data.price.toLocaleString('es-MX')}</span>`;
+                    
+                    return `
+                        <tr class="hover:bg-gray-50 border-b border-gray-100">
+                            <td class="px-6 py-4 whitespace-nowrap"><img src="${data.image}" class="h-16 w-16 rounded-lg object-contain bg-white border p-1"></td>
+                            <td class="px-6 py-4 font-bold text-gray-900">${data.name} ${sizesText}</td>
+                            <td class="px-6 py-4 text-gray-600 text-sm">${data.type}</td>
+                            <td class="px-6 py-4">${priceDisplay} ${installText}</td>
+                            <td class="px-6 py-4 text-right whitespace-nowrap">
+                                <button onclick="editProduct('${data.id}')" title="Editar Producto" class="text-blue-500 hover:text-blue-700 font-bold bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg transition-colors mr-2"><i class="fas fa-edit"></i></button>
+                                <button onclick="deleteProduct('${data.id}')" title="Eliminar Producto" class="text-red-500 hover:text-red-700 font-bold bg-red-50 hover:bg-red-100 px-4 py-2 rounded-lg transition-colors"><i class="fas fa-trash-alt"></i></button>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            });
+        }
+
+        window.deleteProduct = async (id) => {
+            if(confirm('¿Eliminar permanentemente?')) await deleteDoc(doc(db, "products", id));
+        };
+
+        window.editProduct = (id) => {
+            const p = productsList.find(x => x.id === id);
+            if (!p) return;
+            
+            editingId = id;
+            document.getElementById('modal-title').innerText = "Editar Equipo/Accesorio";
+            document.getElementById('save-btn').innerHTML = "<i class='fas fa-save mr-2'></i> Actualizar Producto";
+
+            document.getElementById('p-name').value = p.name || '';
+            document.getElementById('p-desc').value = p.description || '';
+            document.getElementById('p-original-price').value = p.originalPrice || '';
+            document.getElementById('p-price').value = p.price || '';
+            document.getElementById('p-install').value = p.installPrice || '';
+            document.getElementById('p-image').value = p.image || '';
+            document.getElementById('p-sizes').value = p.sizes || ''; // CARGA LAS MEDIDAS
+
+            let categoryText = p.type || 'Línea Platino';
+            if (categoryText.includes(' - ')) categoryText = categoryText.split(' - ')[0];
+            if (categoryText === 'Línea Platinum' || categoryText === 'Platinum') categoryText = 'Línea Platino';
+            document.getElementById('p-type').value = categoryText;
+
+            document.getElementById('product-form-modal').classList.remove('hidden');
+        };
+
+        window.showAddForm = () => {
+            editingId = null;
+            document.getElementById('modal-title').innerText = "Nuevo Equipo/Accesorio";
+            document.getElementById('save-btn').innerText = "Guardar Producto";
+            document.getElementById('new-product-form').reset();
+            document.getElementById('product-form-modal').classList.remove('hidden');
+        };
+        
+        window.hideAddForm = () => {
+            editingId = null;
+            document.getElementById('product-form-modal').classList.add('hidden');
+            document.getElementById('new-product-form').reset();
+        };
+
+        document.getElementById('new-product-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('save-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Guardando...'; 
             btn.disabled = true;
 
-            document.getElementById('wallet_container').innerHTML = '';
+            const installVal = parseFloat(document.getElementById('p-install').value);
+            const origPriceVal = parseFloat(document.getElementById('p-original-price').value);
 
-            const needsInstall = cart.some(i => i.wantsInstall);
-            const shippingAddress = document.getElementById('c-address').value;
-            const finalInstallAddress = needsInstall ? (document.getElementById('c-same-address').checked ? shippingAddress : document.getElementById('c-install-address').value) : "";
-            
-            const addrLower = shippingAddress.toLowerCase();
-            if (!addrLower.includes('mexico') && !addrLower.includes('méxico')) {
-                alert("🛑 COBERTURA INVÁLIDA: Envíos limitados a la República Mexicana.");
-                btn.innerHTML = '<i class="fas fa-lock mr-2"></i> Proceder al Pago Seguro'; btn.disabled = false; return;
-            }
-
-            if (needsInstall) {
-                const instLower = finalInstallAddress.toLowerCase();
-                const isLeonGto = (instLower.includes('leon') || instLower.includes('león')) && (instLower.includes('gto') || instLower.includes('guanajuato'));
-                if (!isLeonGto) {
-                    alert("🛑 COBERTURA DE INSTALACIÓN INVÁLIDA: Instalación solo en León, Gto.");
-                    btn.innerHTML = '<i class="fas fa-lock mr-2"></i> Proceder al Pago Seguro'; btn.disabled = false; return;
-                }
-            }
-
-            const totalAmount = cart.reduce((s, i) => s + ((i.price + (i.wantsInstall?i.installPrice:0)) * i.quantity), 0);
-
-            const orderData = {
-                customerName: document.getElementById('c-name').value,
-                customerPhone: document.getElementById('c-phone').value,
-                customerEmail: document.getElementById('c-email').value,
-                shippingAddress: shippingAddress,
-                needsInstall: needsInstall,
-                installAddress: finalInstallAddress,
-                installSchedule: needsInstall ? document.getElementById('c-schedule').value : "",
-                items: cart.map(i => ({ name: i.name, price: i.price, quantity: i.quantity, wantsInstall: i.wantsInstall||false, installPrice: i.installPrice||0, gasType: i.gasType||"", size: i.size||"" })),
-                total: totalAmount,
-                createdAt: new Date()
+            const productData = {
+                name: document.getElementById('p-name').value,
+                price: parseFloat(document.getElementById('p-price').value),
+                originalPrice: isNaN(origPriceVal) ? 0 : origPriceVal,
+                installPrice: isNaN(installVal) ? 0 : installVal,
+                type: document.getElementById('p-type').value, 
+                description: document.getElementById('p-desc').value,
+                image: document.getElementById('p-image').value,
+                sizes: document.getElementById('p-sizes').value.trim() // GUARDA LAS MEDIDAS
             };
 
             try {
-                const responsePref = await fetch("https://servidor-kruger.onrender.com/create_preference", {
-                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderData.items })
-                });
-
-                const preference = await responsePref.json();
-                btn.classList.add('hidden'); 
-
-                const cleanAmount = Number(totalAmount);
-                const bricksBuilder = mp.bricks();
-                
-                bricksBuilder.create("payment", "wallet_container", {
-                    initialization: { amount: cleanAmount, preferenceId: preference.id },
-                    customization: { paymentMethods: { creditCard: "all", debitCard: "all", mercadoPago: "all", maxInstallments: 1 } },
-                    callbacks: {
-                        onReady: () => { console.log("Cargado."); },
-                        onSubmit: ({ selectedPaymentMethod, formData }) => {
-                            formData.ordenKruger = orderData;
-                            return new Promise((resolve, reject) => {
-                                fetch("https://servidor-kruger.onrender.com/process_payment", {
-                                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(formData),
-                                }).then(r => r.json()).then(async (response) => {
-                                    resolve(); 
-                                    if (response.error) { alert("Error: " + response.error); return; }
-                                    if (response.status === "approved") {
-                                        orderData.status = "Pagado"; orderData.mp_payment_id = response.id;
-                                        await addDoc(collection(db, "orders"), orderData);
-                                        localStorage.setItem("ordenKruger", JSON.stringify({ email: orderData.customerEmail, total: cleanAmount, items: cart }));
-                                        localStorage.removeItem('krugerCart'); cart = []; 
-                                        window.location.replace("success.html"); 
-                                    } else if (response.status === "in_process") {
-                                        alert("En revisión."); window.location.replace("success.html");
-                                    } else if (response.status === "rejected") {
-                                        localStorage.setItem("krugerError", response.status_detail); window.location.replace("error.html"); 
-                                    }
-                                }).catch(() => { reject(); alert("Error de red."); });
-                            });
-                        },
-                        onError: (error) => { console.error("Error Brick:", error); },
-                    },
-                });
-
-            } catch(error) { 
-                alert("Problema de conexión: " + error.message); 
-                btn.innerHTML = '<i class="fas fa-lock mr-2"></i> Proceder al Pago Seguro'; btn.disabled = false; btn.classList.remove('hidden');
-            } 
+                if (editingId) await updateDoc(doc(db, "products", editingId), productData);
+                else await addDoc(collection(db, "products"), productData);
+                hideAddForm();
+            } catch (error) { alert("Error: " + error.message); } 
+            finally { btn.innerHTML = originalText; btn.disabled = false; }
         });
 
-        document.addEventListener("DOMContentLoaded", () => { updateCart(); setupAutocomplete('c-address', 'address-suggestions'); setupAutocomplete('c-install-address', 'install-address-suggestions'); });
-        window.addEventListener("pageshow", function (event) { if (event.persisted) window.location.reload(); });
-    </script>
-</head>
-<body class="bg-[#F8F9FA] text-gray-800 antialiased overflow-x-hidden">
-
-    <nav class="fixed w-full z-40 top-0 glass-nav transition-all duration-300">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-20 items-center">
-                <div class="flex flex-col">
-                    <div class="flex items-center"><img src="./kruger.png" alt="Krüger" class="h-8 md:h-10 w-auto object-contain" onerror="this.onerror=null; this.src='https://placehold.co/240x60/transparent/002855?text=Krüger';"></div>
-                    <span class="text-[10px] uppercase tracking-widest text-gray-500 font-bold mt-1">Distribuidor Autorizado</span>
-                </div>
-                <div class="hidden md:flex space-x-8">
-                    <a href="#calidad" class="text-sm font-bold text-gray-600 hover:text-metallic-blue transition-colors">Ingeniería Krüger</a>
-                    <a href="#catalogo" class="text-sm font-bold text-gray-600 hover:text-metallic-blue transition-colors">Catálogo</a>
-                    <a href="#contacto" class="text-sm font-bold text-gray-600 hover:text-metallic-blue transition-colors">Contacto</a>
-                </div>
-                <div class="flex items-center gap-6">
-                    <button onclick="openCart()" class="relative p-2 text-metallic-blue hover:bg-gray-100 rounded-full transition-colors">
-                        <i class="fas fa-shopping-bag text-xl"></i>
-                        <span id="cart-count" class="absolute top-0 right-0 bg-metallic-red text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center transform translate-x-1 -translate-y-1 shadow-md">0</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </nav>
-
-    <div class="relative pt-20 pb-32 bg-gradient-to-br from-metallic-blue via-[#001530] to-black overflow-hidden">
-        <div class="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/brushed-alum.png')] mix-blend-overlay"></div>
-        <div class="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-metallic-blue rounded-full filter blur-[120px] opacity-50 mix-blend-screen"></div>
-        
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 pt-24 pb-12">
-            <div class="text-center max-w-4xl mx-auto">
-                <span class="inline-block py-1 px-3 rounded-full bg-white/10 text-white text-xs font-bold tracking-widest mb-6 border border-white/20">MÁS DE 30 AÑOS DE EXPERIENCIA</span>
-                <h1 class="text-5xl md:text-7xl font-black text-white tracking-tight mb-6 drop-shadow-2xl">El confort de la <span class="text-transparent bg-clip-text bg-gradient-to-r from-metallic-red to-red-400">tecnología Krüger</span> en tu hogar</h1>
-                <p class="text-xl text-gray-300 mb-10 font-light max-w-2xl mx-auto">Ahorro de gas inigualable, temperatura constante y durabilidad extrema garantizada.</p>
-                <div class="flex justify-center gap-4">
-                    <a href="#catalogo" class="bg-gradient-to-r from-metallic-red to-red-600 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 px-8 rounded-full text-lg transition-all shadow-lg shadow-red-500/30 transform hover:-translate-y-1">Comprar Ahora</a>
-                    <a href="#calidad" class="bg-white/10 hover:bg-white/20 border border-white/30 text-white font-bold py-4 px-8 rounded-full text-lg transition-all">Nuestra Calidad</a>
-                </div>
-            </div>
-        </div>
-        
-        <div class="absolute bottom-0 w-full overflow-hidden leading-[0]">
-            <svg class="relative block w-full h-[60px] md:h-[100px]" viewBox="0 0 1440 100" fill="none" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><path d="M0,50 C360,100 1080,0 1440,50 L1440,100 L0,100 Z" fill="#FFFFFF"></path></svg>
-        </div>
-    </div>
-
-    <section id="calidad" class="bg-white py-24 relative">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="text-center mb-16">
-                <h2 class="text-4xl font-black text-metallic-blue mb-4">Ingeniería que Trasciende</h2>
-                <div class="h-1.5 w-24 bg-metallic-red mx-auto rounded-full mb-6"></div>
-                <p class="text-lg text-gray-600 max-w-3xl mx-auto">Krüger no solo calienta agua, protege tu inversión con estándares europeos.</p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
-                <div class="bg-gray-50 rounded-3xl p-8 border border-gray-100 hover:shadow-xl transition-shadow text-center">
-                    <div class="w-20 h-20 mx-auto bg-blue-100 text-metallic-blue rounded-full flex items-center justify-center text-3xl mb-6 shadow-inner"><i class="fas fa-medal"></i></div>
-                    <h3 class="text-xl font-bold text-gray-900 mb-3">Años de Liderazgo</h3>
-                    <p class="text-gray-600 text-sm leading-relaxed">Con décadas de presencia sólida en el mercado, hemos perfeccionado el arte del calentamiento.</p>
-                </div>
-                <div class="bg-gray-50 rounded-3xl p-8 border border-gray-100 hover:shadow-xl transition-shadow text-center relative overflow-hidden">
-                    <div class="absolute top-0 right-0 bg-metallic-red text-white text-[10px] font-bold px-3 py-1 rounded-bl-lg">NO SE PICAN</div>
-                    <div class="w-20 h-20 mx-auto bg-gray-200 text-gray-600 rounded-full flex items-center justify-center text-3xl mb-6 shadow-inner border-2 border-gray-300"><i class="fas fa-shield-alt"></i></div>
-                    <h3 class="text-xl font-bold text-gray-900 mb-3">Materiales Anticorrosión</h3>
-                    <p class="text-gray-600 text-sm leading-relaxed">Utilizamos aleaciones premium que resisten aguas duras. <strong>Nuestros tanques no se pican.</strong></p>
-                </div>
-                <div class="bg-gray-50 rounded-3xl p-8 border border-gray-100 hover:shadow-xl transition-shadow text-center">
-                    <div class="w-20 h-20 mx-auto bg-red-100 text-metallic-red rounded-full flex items-center justify-center text-3xl mb-6 shadow-inner"><i class="fas fa-lock"></i></div>
-                    <h3 class="text-xl font-bold text-gray-900 mb-3">Máxima Seguridad</h3>
-                    <p class="text-gray-600 text-sm leading-relaxed">Equipados con múltiples sensores de flama, termostatos y válvulas de alivio exactas.</p>
-                </div>
-            </div>
-        </div>
-        <div class="absolute bottom-0 w-full overflow-hidden leading-[0]"><svg class="relative block w-full h-[60px] md:h-[100px]" viewBox="0 0 1440 100" fill="none" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"><path d="M0,50 C360,0 1080,100 1440,50 L1440,100 L0,100 Z" fill="#F8F9FA"></path></svg></div>
-    </section>
-
-    <section id="tecnologia" class="bg-[#F8F9FA] py-24 relative">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-                <div>
-                    <span class="text-metallic-red font-black tracking-widest uppercase text-sm mb-2 block">La Nueva Era</span>
-                    <h2 class="text-4xl md:text-5xl font-black text-metallic-blue mb-6 leading-tight">Conoce la espectacular <br><span class="bg-clip-text text-transparent bg-gradient-to-r from-gray-400 to-gray-600">Tecnología Krüger</span></h2>
-                    <p class="text-lg text-gray-600 mb-8">El pináculo de la eficiencia energética y el confort digital.</p>
-                    <div class="space-y-6">
-                        <div class="flex gap-4">
-                            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-white shadow flex items-center justify-center text-metallic-blue text-xl border border-gray-100"><i class="fas fa-microchip"></i></div>
-                            <div><h4 class="text-xl font-bold text-gray-900">Microprocesador Inteligente</h4><p class="text-gray-600 text-sm mt-1">Garantiza una <strong>temperatura constante e ininterrumpida</strong> sin cambios bruscos.</p></div>
-                        </div>
-                        <div class="flex gap-4">
-                            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-white shadow flex items-center justify-center text-metallic-blue text-xl border border-gray-100"><i class="fas fa-tv"></i></div>
-                            <div><h4 class="text-xl font-bold text-gray-900">Display Digital a Color</h4><p class="text-gray-600 text-sm mt-1">Control absoluto en tus manos. Monitorea y ajusta la temperatura.</p></div>
-                        </div>
-                        <div class="flex gap-4">
-                            <div class="flex-shrink-0 w-12 h-12 rounded-full bg-white shadow flex items-center justify-center text-metallic-red text-xl border border-gray-100"><i class="fas fa-fire-alt"></i></div>
-                            <div><h4 class="text-xl font-bold text-gray-900">Hasta 80% Ahorro de Gas</h4><p class="text-gray-600 text-sm mt-1">El sistema modulante te permite ahorrar drásticamente.</p></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="relative">
-                    <div class="absolute inset-0 bg-gradient-to-tr from-metallic-blue to-transparent rounded-3xl transform rotate-3 scale-105 opacity-10"></div>
-                    <div class="bg-white p-8 md:p-10 rounded-3xl shadow-2xl relative z-10 border border-gray-100">
-                        <div class="w-16 h-16 bg-yellow-100 text-yellow-600 rounded-full flex items-center justify-center text-3xl mb-6"><i class="fas fa-sun"></i></div>
-                        <h3 class="text-3xl font-black text-gray-900 mb-4">Interconectable con<br>Calentadores Solares</h3>
-                        <p class="text-gray-600 mb-6 leading-relaxed">Son <strong>híbridos</strong>, pueden trabajar en perfecta sincronía con tu equipo solar existente.</p>
-                        <div class="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                            <h4 class="font-bold text-metallic-blue mb-2 text-sm uppercase tracking-wide">¿Cómo funciona?</h4>
-                            <p class="text-sm text-gray-600">Si el agua viene tibia, el calentador <strong>solo enciende la flama necesaria</strong>.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <main id="catalogo" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 relative z-20">
-        <div class="text-center mb-8">
-            <h2 class="text-4xl md:text-5xl font-black text-metallic-blue mb-4">Elige tu Krüger</h2>
-            <div class="h-1.5 w-24 bg-gradient-to-r from-metallic-red to-red-400 mx-auto rounded-full"></div>
-            <p class="mt-4 text-gray-500 font-bold uppercase tracking-widest"><i class="fas fa-truck text-green-500 mr-1"></i> Envío Gratis a Todo México</p>
-        </div>
-
-        <div class="flex overflow-x-auto gap-2 md:gap-4 mb-8 pb-4 no-scrollbar items-center md:justify-center">
-            <button onclick="filterCat('Todos')" class="cat-btn active bg-metallic-blue text-white px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap shadow-md transition-all">Todos</button>
-            <button onclick="filterCat('Línea Silver')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Línea Silver</button>
-            <button onclick="filterCat('Línea Platino')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Línea Platino</button>
-            <button onclick="filterCat('Instantáneos')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Instantáneos</button>
-            <button onclick="filterCat('Solares')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Solares</button>
-            <button onclick="filterCat('Eléctricos')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Eléctricos</button>
-            <button onclick="filterCat('Aires Acondicionados Inverter')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Aires Inverter</button>
-            <button onclick="filterCat('Parrillas')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Parrillas</button>
-            <button onclick="filterCat('Accesorios')" class="cat-btn bg-white text-gray-600 hover:text-metallic-blue px-4 md:px-6 py-2 rounded-full font-bold text-xs md:text-sm whitespace-nowrap border border-gray-200 hover:border-metallic-blue transition-all">Accesorios</button>
-        </div>
-        
-        <div id="products-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-6"></div>
-    </main>
-
-    <!-- MODAL DE DETALLE -->
-    <div id="product-detail-modal" class="fixed inset-0 bg-metallic-blue/90 z-50 hidden flex items-center justify-center p-4 md:p-10 backdrop-blur-md overflow-y-auto">
-        <div class="bg-white rounded-3xl w-full max-w-5xl shadow-2xl relative flex flex-col md:flex-row overflow-hidden my-auto">
-            <button onclick="closeProductDetail()" class="absolute top-4 right-4 text-gray-400 hover:text-metallic-red bg-white rounded-full p-2 z-10 shadow-sm"><i class="fas fa-times text-xl"></i></button>
-            <div class="md:w-1/2 bg-gray-50 p-8 flex flex-col border-r border-gray-100">
-                <div class="self-start bg-green-100 text-green-700 text-xs font-black px-3 py-1.5 rounded-full uppercase tracking-wider mb-4 flex items-center gap-2"><i class="fas fa-truck-fast"></i> Envío Gratis a domicilio</div>
-                <div class="flex-1 min-h-[300px] flex items-center justify-center mb-6 bg-white rounded-2xl p-6 shadow-inner"><img id="detail-main-img" src="" class="object-contain w-full h-full max-h-[400px] drop-shadow-xl transition-all"></div>
-            </div>
-            <div class="md:w-1/2 p-8 md:p-12 flex flex-col justify-center">
-                <span id="detail-category-badge" class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-2 flex-wrap">Tecnología Krüger</span>
-                <h2 id="detail-name" class="text-3xl md:text-4xl font-black text-metallic-blue mb-4 leading-tight">Modelo</h2>
-                <div id="detail-price" class="text-4xl font-black text-gray-900 mb-6 flex items-baseline gap-2 flex-wrap">$0 MXN</div>
-                <div class="flex items-center gap-4 mb-6 text-sm">
-                    <div class="flex items-center gap-2 text-green-600 font-bold bg-green-50 px-3 py-2 rounded-lg border border-green-100"><i class="fas fa-box-open"></i> En stock</div>
-                    <div class="flex items-center gap-2 text-gray-600 font-medium"><i class="fas fa-bolt text-yellow-500"></i> Entrega: 2 a 5 días</div>
-                </div>
-                <div class="mb-8"><h4 class="font-bold text-gray-900 mb-2 border-b pb-2">Acerca del equipo</h4><p id="detail-desc" class="text-gray-600 text-sm leading-relaxed"></p></div>
+        // ================= PEDIDOS =================
+        function loadOrders() {
+            onSnapshot(collection(db, "orders"), (snapshot) => {
+                let orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                orders.sort((a,b) => b.createdAt.seconds - a.createdAt.seconds);
                 
-                <div id="detail-selectors-container"></div>
-                <div id="detail-install-container" class="mb-6"></div>
+                const now = new Date();
+                const currentMonth = now.getMonth();
+                const currentYear = now.getFullYear();
+                
+                let totalVentasMes = 0; let pendientesCount = 0; let completadosMesCount = 0;
+                const tbody = document.getElementById('orders-table-body');
+                
+                if(orders.length === 0){
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-10 text-gray-500 font-bold text-lg"><i class="fas fa-box-open mb-3 text-3xl block"></i>No hay pedidos registrados aún.</td></tr>`;
+                    updateStatsUI(0, 0, 0); return;
+                }
 
-                <button onclick="addDetailToCart()" class="w-full bg-metallic-blue hover:bg-blue-900 text-white font-bold py-4 rounded-2xl text-lg transition-all shadow-lg shadow-blue-900/30 transform hover:-translate-y-1 flex items-center justify-center gap-2 mt-4"><i class="fas fa-cart-plus"></i> Agregar al Pedido</button>
-            </div>
-        </div>
-    </div>
+                let html = '';
+                orders.forEach(order => {
+                    const dateObj = new Date(order.createdAt.seconds * 1000);
+                    const isCurrentMonth = (dateObj.getMonth() === currentMonth && dateObj.getFullYear() === currentYear);
 
-    <!-- MODAL CARRITO -->
-    <div id="cart-modal" class="fixed inset-y-0 right-0 w-full max-w-md bg-[#F8F9FA] shadow-2xl z-50 transform translate-x-full transition-transform duration-500 ease-out flex flex-col border-l border-gray-200">
-        <div class="p-6 bg-white border-b border-gray-100 flex justify-between items-center"><h2 class="text-2xl font-black text-metallic-blue">Tu Pedido</h2><button onclick="closeCart()" class="text-gray-400 hover:text-metallic-red transition-colors bg-gray-50 p-2 rounded-full"><i class="fas fa-times text-xl"></i></button></div>
-        <div id="cart-items" class="flex-1 overflow-y-auto p-6 space-y-4"></div>
-        <div class="p-8 bg-white border-t border-gray-100 shadow-[0_-10px_40px_rgb(0,0,0,0.05)]">
-            <div class="flex justify-between text-xl font-bold mb-6 text-metallic-blue"><span>Total estimado:</span><span id="cart-total" class="text-2xl">$0</span></div>
-            <button onclick="openCheckout()" class="w-full bg-gradient-to-r from-metallic-red to-red-600 hover:from-red-700 hover:to-red-800 text-white font-bold py-4 rounded-2xl text-lg transition-all shadow-lg shadow-red-500/30 transform hover:-translate-y-1">Finalizar Compra</button>
-        </div>
-    </div>
+                    if(order.status === "Pagado" || order.mp_payment_id) pendientesCount++;
+                    else if (order.status === "Realizado" && isCurrentMonth) { completadosMesCount++; totalVentasMes += order.total; }
 
-    <!-- MODAL CHECKOUT -->
-    <div id="checkout-modal" class="fixed inset-0 bg-metallic-blue/90 z-50 hidden flex items-center justify-center p-4 backdrop-blur-md">
-        <div class="bg-white rounded-3xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col md:flex-row shadow-2xl">
-            <div class="bg-gray-50 p-6 md:p-10 md:w-1/3 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col justify-between">
-                <div>
-                    <h3 class="text-xl font-black text-metallic-blue mb-4">Resumen de tu Pedido</h3>
-                    <div id="checkout-items-list" class="mb-4 space-y-2 max-h-48 overflow-y-auto pr-1 no-scrollbar"></div>
-                    <div class="border-t border-gray-200 pt-4 mb-4">
-                        <div class="flex justify-between text-sm text-gray-600 mb-2"><span>Subtotal (Sin IVA)</span><span id="checkout-subtotal" class="font-bold text-gray-800">$0.00</span></div>
-                        <div class="flex justify-between text-sm text-gray-600 mb-4"><span>IVA (16%)</span><span id="checkout-iva" class="font-bold text-gray-800">$0.00</span></div>
-                        <div class="flex justify-between items-end border-t border-gray-200 pt-3"><span class="text-base font-bold text-gray-800">Total a pagar</span><div class="text-2xl font-black text-gray-900" id="final-total">$0 MXN</div></div>
-                    </div>
-                    <div class="bg-green-100 text-green-800 text-xs font-bold p-3 rounded-lg flex items-center gap-2"><i class="fas fa-check-circle text-lg"></i> Envío nacional Gratis</div>
-                </div>
-                <button type="button" onclick="closeCheckout()" class="text-sm text-gray-500 font-bold hover:text-metallic-red text-left mt-6 flex items-center"><i class="fas fa-arrow-left mr-2"></i> Volver al carrito</button>
-            </div>
-
-            <div class="p-8 md:p-10 md:w-2/3 overflow-y-auto">
-                <h3 class="text-2xl font-black text-gray-800 mb-6">Completa tus datos</h3>
-                <form id="checkout-form" class="space-y-5">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">Nombre Completo</label><input type="text" id="c-name" required class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none"></div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">Teléfono Móvil</label><input type="tel" id="c-phone" required class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none"></div>
-                    </div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">Correo Electrónico</label><input type="email" id="c-email" required placeholder="ejemplo@correo.com" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none"></div>
-                    <div class="relative">
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Dirección de Envío Completa</label>
-                        <input type="text" id="c-address" required placeholder="Empieza a escribir tu calle..." autocomplete="off" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:border-metallic-blue">
-                        <ul id="address-suggestions" class="absolute z-50 w-full bg-white border border-gray-200 rounded-xl mt-1 shadow-2xl hidden max-h-48 overflow-y-auto"></ul>
-                    </div>
-                    <div id="installation-fields" class="hidden bg-blue-50/50 p-6 rounded-2xl border border-blue-100 mt-4">
-                        <h4 class="text-sm font-bold text-metallic-blue mb-4"><i class="fas fa-tools mr-1"></i> Detalles de Instalación</h4>
-                        <label class="flex items-center gap-2 mb-4 cursor-pointer"><input type="checkbox" id="c-same-address" checked class="w-4 h-4 text-metallic-blue"><span class="text-sm text-gray-700 font-medium">Misma dirección de envío</span></label>
-                        <div id="c-install-address-container" class="relative hidden mb-4">
-                            <input type="text" id="c-install-address" placeholder="Escribe la dirección diferente" autocomplete="off" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:border-metallic-blue">
-                            <ul id="install-address-suggestions" class="absolute z-50 w-full bg-white border border-gray-200 rounded-xl mt-1 shadow-2xl hidden max-h-48 overflow-y-auto"></ul>
+                    const formattedDate = dateObj.toLocaleDateString('es-MX') + ' ' + dateObj.toLocaleTimeString('es-MX', {hour: '2-digit', minute:'2-digit'});
+                    
+                    const listaItems = order.items || [];
+                    const itemsHtml = listaItems.length > 0 ? listaItems.map(i => `
+                        <div class="text-sm mb-1 text-gray-800 bg-white p-2 rounded border border-gray-100 shadow-sm whitespace-normal">
+                            <strong class="text-metallic-blue">${i.quantity}x</strong> ${i.name} 
+                            ${i.gasType ? `<span class="text-[10px] bg-orange-50 text-orange-600 px-1.5 py-0.5 rounded border border-orange-100 ml-1 whitespace-nowrap"><i class="fas fa-fire mr-1"></i>${i.gasType}</span>` : ''}
+                            ${i.size ? `<span class="text-[10px] bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200 ml-1 whitespace-nowrap"><i class="fas fa-ruler-horizontal mr-1"></i>Medida: ${i.size}</span>` : ''}
+                            ${i.wantsInstall ? '<span class="text-metallic-red font-bold text-xs ml-1 block mt-1"><i class="fas fa-plus"></i> Instalación Incluida</span>' : ''}
                         </div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">Fecha y Hora Preferida</label><input type="datetime-local" id="c-schedule" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none cursor-pointer"></div>
+                    `).join('') : '<span class="text-gray-400 italic">Productos no registrados</span>';
+                    
+                    const installInfo = order.needsInstall ? `
+                        <div class="mt-3 bg-blue-50 p-3 rounded-lg border border-blue-100 whitespace-normal">
+                            <p class="text-xs font-bold text-metallic-blue uppercase tracking-wider mb-2"><i class="fas fa-tools mr-1"></i> Detalles Instalación</p>
+                            <div class="text-sm text-gray-700 mb-3"><strong class="block mb-1">Lugar:</strong>
+                                <div class="flex items-center gap-2"><span class="bg-white px-2 py-1 rounded border border-blue-200 flex-1 min-h-[28px] flex items-center shadow-sm break-all">${order.installAddress || '<span class="text-gray-400 italic">N/A</span>'}</span>
+                                <button onclick="editInstallAddress('${order.id}', '${order.installAddress || ''}')" title="Modificar dirección" class="text-gray-400 hover:text-metallic-blue transition-colors p-1 bg-white rounded border shadow-sm flex-shrink-0"><i class="fas fa-edit"></i></button></div>
+                            </div>
+                            <div class="text-sm text-gray-700"><strong class="block mb-1">Horario acordado:</strong>
+                                <div class="flex items-center gap-2"><span class="bg-white px-2 py-1 rounded border border-blue-200 flex-1 min-h-[28px] flex items-center shadow-sm">${order.installSchedule || '<span class="text-gray-400 italic">N/A</span>'}</span>
+                                <button onclick="editInstallSchedule('${order.id}', '${order.installSchedule || ''}')" title="Modificar horario" class="text-gray-400 hover:text-metallic-blue transition-colors p-1 bg-white rounded border shadow-sm flex-shrink-0"><i class="fas fa-edit"></i></button></div>
+                            </div>
+                        </div>
+                    ` : '';
+
+                    let statusBadge = '';
+                    const isDone = order.status === "Realizado";
+                    
+                    if (isDone) statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center"><i class="fas fa-check-double mr-1"></i> Entregado</span>`;
+                    else if (order.status === "Pagado" || order.mp_payment_id) statusBadge = `<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-money-bill-wave mr-1"></i> Pagado - Por Enviar</span>`;
+                    else statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-bold shadow-sm inline-flex items-center whitespace-nowrap"><i class="fas fa-times-circle mr-1"></i> Pago Rechazado / Pendiente</span>`;
+
+                    let actionBtn = '';
+                    if (isDone) actionBtn = `<button onclick="updateOrderStatus('${order.id}', 'Pagado')" class="text-xs text-gray-400 hover:text-metallic-red underline mt-2 block w-full text-right transition-colors">Deshacer estado</button>`;
+                    else if (order.status === "Pagado" || order.mp_payment_id) actionBtn = `<button onclick="updateOrderStatus('${order.id}', 'Realizado')" class="bg-metallic-blue hover:bg-blue-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg transition-colors w-full whitespace-nowrap"><i class="fas fa-check mr-1"></i> Marcar Entregado</button>`;
+
+                    const cleanPhone = order.customerPhone ? order.customerPhone.replace(/\D/g, '') : '';
+                    const waLink = `https://wa.me/52${cleanPhone}?text=Hola\%20${encodeURIComponent(order.customerName)},%20te%20escribimos%20de%20Krüger%20sobre%20tu%20reciente%20pedido.`;
+
+                    const mpBadge = order.mp_payment_id 
+                        ? `<div class="mt-4 flex items-center justify-between bg-[#009EE3]/10 border border-[#009EE3]/20 px-2 py-1.5 rounded-lg whitespace-nowrap">
+                            <div><i class="fas fa-handshake text-[#009EE3] text-[10px] mr-1"></i><span class="font-mono text-xs font-black text-[#009EE3] tracking-wider">#${order.mp_payment_id}</span></div>
+                            <button onclick="navigator.clipboard.writeText('${order.mp_payment_id}'); alert('ID copiado');" class="text-[#009EE3] hover:text-blue-800 bg-white px-2 py-0.5 rounded shadow-sm text-xs font-bold ml-2"><i class="fas fa-copy"></i></button>
+                           </div>` : ``;
+
+                    html += `
+                        <tr class="hover:bg-gray-50 border-b border-gray-100 ${isDone ? 'bg-gray-50/50 opacity-80' : ''}">
+                            <td class="px-6 py-5 align-top">
+                                <div class="font-black text-gray-900 text-lg whitespace-nowrap">${order.customerName || 'Cliente'}</div>
+                                <div class="text-xs font-bold text-gray-500 mt-1 mb-2 uppercase whitespace-nowrap"><i class="far fa-calendar-alt mr-1"></i> ${formattedDate}</div>
+                                ${statusBadge} ${mpBadge}
+                            </td>
+                            <td class="px-6 py-5 align-top min-w-[200px]">
+                                <div class="text-sm font-bold text-metallic-blue mb-1 whitespace-nowrap"><a href="${waLink}" target="_blank" class="hover:text-green-500"><i class="fab fa-whatsapp text-green-500 w-5"></i> ${order.customerPhone || 'N/A'}</a></div>
+                                <div class="text-sm text-gray-600 leading-tight bg-gray-50 p-2 rounded border border-gray-100 whitespace-normal"><i class="fas fa-map-marker-alt text-metallic-red mr-1"></i> ${order.shippingAddress || 'N/A'}</div>
+                            </td>
+                            <td class="px-6 py-5 align-top min-w-[250px]">
+                                <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                    <h4 class="text-xs font-bold text-gray-500 uppercase mb-2 border-b pb-1">Productos Comprados</h4>
+                                    ${itemsHtml}
+                                </div>
+                                ${installInfo}
+                            </td>
+                            <td class="px-6 py-5 align-top">
+                                <span class="font-black text-green-600 text-xl whitespace-nowrap">$${(order.total || 0).toLocaleString('es-MX')}</span>
+                                <div class="text-xs text-gray-500 mt-1 uppercase font-bold">MXN</div>
+                            </td>
+                            <td class="px-6 py-5 align-top">
+                                ${actionBtn}
+                                <div class="mt-4 text-right"><button onclick="deleteOrder('${order.id}')" class="text-xs text-red-400 hover:text-red-600 font-bold"><i class="fas fa-trash-alt mr-1"></i> Eliminar Registro</button></div>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tbody.innerHTML = html;
+                updateStatsUI(totalVentasMes, pendientesCount, completadosMesCount);
+            });
+        }
+
+        window.deleteOrder = async (id) => {
+            if(confirm('¿Seguro de eliminar este registro permanentemente?')) {
+                try { await deleteDoc(doc(db, "orders", id)); } catch(e) { alert("Error: " + e.message); }
+            }
+        };
+
+        window.updateOrderStatus = async (id, status) => {
+            if (confirm(status === 'Realizado' ? '¿Marcar como ENTREGADO?' : '¿DESHACER entrega?')) {
+                try { await updateDoc(doc(db, "orders", id), { status: status }); } catch(e) { alert("Error: " + e.message); }
+            }
+        };
+
+        window.editInstallAddress = async (id, current) => {
+            const n = prompt("Nueva DIRECCIÓN:", current);
+            if (n !== null && n.trim() !== "") try { await updateDoc(doc(db, "orders", id), { installAddress: n }); } catch(e) { alert("Error"); }
+        };
+
+        window.editInstallSchedule = async (id, current) => {
+            const n = prompt("Nuevo HORARIO:", current);
+            if (n !== null && n.trim() !== "") try { await updateDoc(doc(db, "orders", id), { installSchedule: n }); } catch(e) { alert("Error"); }
+        };
+
+        function updateStatsUI(ventas, pendientes, completados) {
+            document.getElementById('stat-ventas').innerText = '$' + ventas.toLocaleString('es-MX');
+            document.getElementById('stat-pendientes').innerText = pendientes;
+            document.getElementById('stat-completados').innerText = completados;
+        }
+    </script>
+    <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Outfit', 'sans-serif'] }, colors: { 'metallic-blue': '#002855', 'metallic-red': '#D31145' } } } }</script>
+    <style>body { font-family: 'Outfit', sans-serif; }</style>
+</head>
+<body class="bg-gray-100 font-sans h-screen flex flex-col">
+
+    <div id="login-screen" class="flex-1 flex items-center justify-center bg-metallic-blue">
+        <div class="bg-white p-10 rounded-3xl shadow-2xl max-w-sm w-full text-center">
+            <div class="h-12 w-full bg-gray-100 rounded flex items-center justify-center overflow-hidden mb-4">
+                <img src="./logo-kruger.png" alt="KRÜGER" class="h-full object-contain" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                <span class="text-gray-400 font-bold text-sm hidden">Krüger Admin</span>
+            </div>
+            <h2 class="text-2xl font-black text-metallic-blue mb-6">Acceso Privado</h2>
+            <form id="login-form" class="space-y-4">
+                <input type="email" id="email-input" placeholder="Correo Electrónico" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50">
+                <input type="password" id="password-input" placeholder="Contraseña" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50">
+                <button type="submit" class="w-full bg-metallic-blue text-white font-bold py-3 rounded-xl hover:bg-blue-900 transition mt-6">Entrar</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="admin-dashboard" class="hidden flex-1 flex flex-col h-screen overflow-hidden">
+        <nav class="bg-white border-b border-gray-200 z-10">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                <div class="flex items-center gap-4"><span class="bg-metallic-red text-white px-3 py-1 rounded-full text-xs font-bold tracking-wider">ADMIN</span><span class="font-black text-xl text-metallic-blue">Krüger Store</span></div>
+                <div class="flex bg-gray-100 p-1 rounded-xl">
+                    <button id="btn-inventario" onclick="switchTab('inventario')" class="px-6 py-1.5 rounded-lg font-bold text-sm bg-metallic-blue text-white transition-colors">Inventario</button>
+                    <button id="btn-pedidos" onclick="switchTab('pedidos')" class="px-6 py-1.5 rounded-lg font-bold text-sm bg-gray-200 text-gray-600 hover:text-gray-900 transition-colors">Ver Pedidos</button>
+                </div>
+                <div class="flex items-center gap-4 md:gap-6">
+                    <span class="text-[10px] text-gray-400 font-bold hidden md:block">v2.3</span>
+                    <span class="text-sm text-gray-500 font-medium hidden md:block" id="user-email"></span>
+                    <button onclick="logout()" class="text-sm text-red-500 font-bold hover:text-red-700"><i class="fas fa-sign-out-alt"></i> Salir</button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="flex-1 overflow-auto bg-[#F8F9FA] p-8">
+            <div class="max-w-7xl mx-auto">
+                <div id="tab-inventario">
+                    <div class="flex justify-between items-center mb-8">
+                        <div><h1 class="text-3xl font-black text-gray-900">Catálogo de Productos</h1><p class="text-gray-500 mt-1">Gestiona los modelos y accesorios de la tienda.</p></div>
+                        <button onclick="showAddForm()" class="bg-metallic-blue hover:bg-blue-900 text-white font-bold py-3 px-6 rounded-xl shadow-lg transition-transform transform hover:-translate-y-1"><i class="fas fa-plus"></i> Nuevo Equipo</button>
                     </div>
-                    <button type="submit" id="btn-process-order" class="w-full bg-[#009EE3] hover:bg-blue-600 text-white font-black py-4 rounded-2xl text-lg shadow-lg flex justify-center items-center gap-2 mt-4 transition-colors"><i class="fas fa-lock"></i> Proceder al Pago Seguro</button>
-                    <div id="wallet_container" class="mt-4"></div>
-                </form>
+                    <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50"><tr><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Foto</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Modelo</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Categoría</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Precio</th><th class="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Acciones</th></tr></thead>
+                            <tbody id="admin-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="tab-pedidos" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-chart-line mr-1"></i> Ingresos del Mes</p><h3 class="text-4xl font-black text-green-600" id="stat-ventas">$0</h3></div>
+                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-clock mr-1"></i> Pagados - Por enviar</p><h3 class="text-4xl font-black text-blue-600" id="stat-pendientes">0</h3></div>
+                        <div class="bg-white rounded-3xl p-6 shadow-sm border border-gray-200 flex flex-col justify-center"><p class="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2"><i class="fas fa-check-double mr-1"></i> Entregados (Mes)</p><h3 class="text-4xl font-black text-metallic-blue" id="stat-completados">0</h3></div>
+                    </div>
+                    <div class="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50"><tr><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Cliente y Estado</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Contacto y Envío</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase w-1/3">Detalle del Pedido</th><th class="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase">Monto Final</th><th class="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase">Acciones</th></tr></thead>
+                            <tbody id="orders-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <footer id="contacto" class="bg-metallic-blue text-gray-300 py-12 border-t border-blue-900">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center md:text-left grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div>
-                <img src="./logo-kruger-blanco.png" alt="Krüger" class="h-8 md:h-10 w-auto object-contain mb-4 mx-auto md:mx-0">
-                <p class="text-sm text-blue-200 mt-4">Distribuidor Autorizado. Llevando la mejor tecnología Krüger y el confort absoluto a cada hogar en México.</p>
-            </div>
-            <div>
-                <h4 class="text-white font-bold mb-4 uppercase text-sm tracking-wider">Enlaces Rápidos</h4>
-                <ul class="space-y-2 text-sm">
-                    <li><a href="#calidad" class="hover:text-white">Nuestra Calidad</a></li>
-                    <li><a href="#tecnologia" class="hover:text-white">Tecnología Krüger</a></li>
-                    <li><a href="#catalogo" class="hover:text-white">Catálogo Premium</a></li>
-                </ul>
-            </div>
-            <div>
-                <h4 class="text-white font-bold mb-4 uppercase text-sm tracking-wider">Soporte</h4>
-                <p class="text-sm mb-2"><i class="fas fa-envelope mr-2"></i> krugerdistribudorautorizado@gmail.com</p>
-                <p class="text-sm"><i class="far fa-copyright mr-2"></i> Todos los derechos reservados 2026</p>
-            </div>
+    <!-- MODAL PARA AGREGAR/EDITAR PRODUCTO -->
+    <div id="product-form-modal" class="fixed inset-0 bg-metallic-blue/80 hidden flex items-center justify-center p-4 backdrop-blur-sm z-50">
+        <div class="bg-white rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 id="modal-title" class="text-2xl font-black text-metallic-blue mb-6">Nuevo Equipo</h3>
+            <form id="new-product-form" class="space-y-4">
+                <div><label class="block text-sm font-bold text-gray-700 mb-1">Nombre / Modelo</label><input type="text" id="p-name" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></div>
+                <div><label class="block text-sm font-bold text-gray-700 mb-1">Descripción</label><textarea id="p-desc" rows="2" required class="w-full border border-gray-200 rounded-xl p-3 outline-none focus:ring-2 focus:ring-metallic-blue bg-gray-50"></textarea></div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">Precio Original</label><input type="number" id="p-original-price" placeholder="Opcional" class="w-full border border-gray-300 rounded-xl p-3 bg-white"></div>
+                    <div><label class="block text-sm font-bold text-metallic-red mb-1">Precio Venta</label><input type="number" id="p-price" required class="w-full border border-red-300 rounded-xl p-3 bg-white"></div>
+                    <div><label class="block text-sm font-bold text-metallic-blue mb-1">Instalación (Opc)</label><input type="number" id="p-install" placeholder="Ej: 800" class="w-full border border-blue-200 rounded-xl p-3 bg-white"></div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Categoría</label>
+                        <select id="p-type" class="w-full border border-gray-200 rounded-xl p-3 bg-white outline-none focus:ring-2 focus:ring-metallic-blue">
+                            <option value="Línea Silver">Línea Silver</option>
+                            <option value="Línea Platino">Línea Platino</option>
+                            <option value="Instantáneos">Instantáneos</option>
+                            <option value="Solares">Solares</option>
+                            <option value="Eléctricos">Eléctricos</option>
+                            <option value="Aires Acondicionados Inverter">Aires Inverter</option>
+                            <option value="Parrillas">Parrillas</option>
+                            <option value="Accesorios">Accesorios</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-purple-700 mb-1">Variantes/Medidas (Opcional)</label>
+                        <input type="text" id="p-sizes" placeholder="Ej: 1m, 1.5m, 2m" class="w-full border border-purple-200 rounded-xl p-3 text-sm bg-purple-50 outline-none focus:ring-2 focus:ring-purple-500" title="Separa las opciones por comas. Déjalo en blanco si es talla única.">
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">URL de la Imagen (Cloudinary)</label>
+                    <input type="url" id="p-image" required class="w-full border border-gray-200 rounded-xl p-3 text-sm bg-gray-50 outline-none focus:ring-2 focus:ring-metallic-blue">
+                </div>
+
+                <div class="flex items-center justify-end mt-8">
+                    <div class="flex gap-3">
+                        <button type="button" onclick="hideAddForm()" class="px-6 py-3 font-bold text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors">Cancelar</button>
+                        <button type="submit" id="save-btn" class="px-6 py-3 font-bold bg-metallic-blue text-white rounded-xl hover:bg-blue-900 transition-colors">Guardar Producto</button>
+                    </div>
+                </div>
+            </form>
         </div>
-    </footer>
+    </div>
 </body>
 </html>
